@@ -104,7 +104,21 @@ const getOrderById = async (req, res) => {
 const createOrder = async (req, res) => {
   const t = await sequelize.transaction();
   try {
-    const { table_id, table_name, customer_name, customer_count, type, notes, items } = req.body;
+    // FIX 2026-09-09: la app iOS manda "table_number" y "people_count".
+    // Antes solo se leían table_id / table_name / customer_count, así que la
+    // orden se guardaba con table_id = NULL y en cocina salía "Sin mesa"
+    // desde cualquier otro dispositivo.
+    const {
+      table_id,
+      table_name,
+      table_number,
+      customer_name,
+      customer_count,
+      people_count,
+      type,
+      notes,
+      items,
+    } = req.body;
 
     if (!items || items.length === 0) {
       await t.rollback();
@@ -157,15 +171,31 @@ const createOrder = async (req, res) => {
     const orderCount = await Order.count();
     const order_number = 'ORD-' + dateStr + '-' + String(orderCount + 1).padStart(4, '0');
 
-    // Resolver table_id: puede venir directo o buscar por table_name (ej. "Mesa 2")
+    // ── Resolver la mesa ──────────────────────────────────────────────
+    // La referencia puede venir como table_id, table_name ("Mesa 2") o
+    // table_number ("2", que es lo que manda la app iOS).
+    const rawTable = table_name || table_number || null;
+
     let resolvedTableId = table_id || null;
-    let resolvedTableName = customer_name || table_name || null;
-    if (!resolvedTableId && table_name) {
+    let resolvedTableName = customer_name || (rawTable != null ? String(rawTable) : null);
+
+    if (!resolvedTableId && rawTable != null) {
       try {
-        const tableNum = table_name.replace(/[^0-9]/g, '');
-        if (tableNum) {
-          const foundTable = await Table.findOne({ where: { number: tableNum }, transaction: t });
-          if (foundTable) resolvedTableId = foundTable.id;
+        // Solo se resuelve como mesa si es un número puro ("2") o "Mesa 2".
+        // Un ticket sin mesa ("Juan 2") NO debe engancharse a la Mesa 2:
+        // se queda como customer_name y ya.
+        const match = String(rawTable).trim().match(/^(?:mesa\s*)?(\d+)$/i);
+        if (match) {
+          const foundTable = await Table.findOne({
+            where: { number: match[1] },
+            transaction: t,
+          });
+          if (foundTable) {
+            resolvedTableId = foundTable.id;
+            if (!customer_name) {
+              resolvedTableName = foundTable.name || `Mesa ${match[1]}`;
+            }
+          }
         }
       } catch (_) {}
     }
@@ -174,7 +204,8 @@ const createOrder = async (req, res) => {
       order_number,
       table_id: resolvedTableId,
       customer_name: resolvedTableName,
-      customer_count: customer_count || 1,
+      // people_count es el nombre que usa la app iOS
+      customer_count: customer_count || people_count || 1,
       type: type || 'dine_in',
       notes,
       subtotal,

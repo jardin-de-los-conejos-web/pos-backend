@@ -19,6 +19,7 @@ const posTransactionsRoutes = require('./routes/pos-transactions');
 const cocinaRoutes = require('./routes/cocina');
 const exportRoutes = require('./routes/export');
 
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
