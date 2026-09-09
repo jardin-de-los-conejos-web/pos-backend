@@ -17,7 +17,7 @@ const dailySummaryRoutes = require('./routes/dailySummary');
 const twoFactorRoutes = require('./routes/2fa');
 const posTransactionsRoutes = require('./routes/pos-transactions');
 const cocinaRoutes = require('./routes/cocina');
-const exportRoutes = require('./routes/export');
+const ticketsRoutes = require('./routes/tickets'); // ← NUEVO
 
 
 const app = express();
@@ -67,7 +67,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/daily', dailySummaryRoutes);
 app.use('/api/cocina', cocinaRoutes);
-app.use('/api/export', exportRoutes);
+app.use('/api/tickets', ticketsRoutes); // ← NUEVO
 
 // ========================
 //    ERROR HANDLERS
