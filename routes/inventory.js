@@ -1,6 +1,7 @@
 const express = require('express')
 const router  = express.Router()
 const { sequelize } = require('../config/database')
+const push = require('../services/push')
 
 // ── GET /api/inventory ─────────────────────────────────
 router.get('/', async (req, res) => {
@@ -74,6 +75,7 @@ router.put('/:id', async (req, res) => {
     const [[item]] = await sequelize.query(
       `SELECT * FROM inventory_items WHERE id=?`, { replacements: [id] }
     )
+    push.revisarEnSegundoPlano()   // por si cambió el mínimo
     res.json({ success: true, data: item })
   } catch (e) {
     res.status(500).json({ success: false, message: e.message })
@@ -114,6 +116,7 @@ router.post('/:id/adjust', async (req, res) => {
       { replacements: [id, type, qty, reason || null, user_name || 'Sistema'] }
     )
 
+    push.revisarEnSegundoPlano()   // avisa a los iPads si quedó en stock bajo
     res.json({ success: true, data: { id: parseInt(id), quantity: newQty }, message: 'Stock actualizado' })
   } catch (e) {
     res.status(500).json({ success: false, message: e.message })

@@ -132,6 +132,9 @@ const processPayment = async (req, res) => {
       console.error('⚠️ Error descontando inventario (pago guardado igual):', invErr.message)
     }
 
+    // Avisa a los iPads (push) si algo quedó en stock bajo después de la venta
+    require('../services/push').revisarEnSegundoPlano()
+
     const fullPayment = await Payment.findByPk(payment.id, {
       include: [{ model: Order, as: 'order' }],
     });

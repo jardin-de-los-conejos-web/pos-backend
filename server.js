@@ -18,6 +18,8 @@ const twoFactorRoutes = require('./routes/2fa');
 const posTransactionsRoutes = require('./routes/pos-transactions');
 const cocinaRoutes = require('./routes/cocina');
 const ticketsRoutes = require('./routes/tickets'); // ← NUEVO
+const deviceRoutes = require('./routes/devices'); // ← push de stock bajo
+const push = require('./services/push');
 
 
 const app = express();
@@ -68,6 +70,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/daily', dailySummaryRoutes);
 app.use('/api/cocina', cocinaRoutes);
 app.use('/api/tickets', ticketsRoutes); // ← NUEVO
+app.use('/api/devices', deviceRoutes); // ← push de stock bajo
 
 // ========================
 //    ERROR HANDLERS
@@ -89,6 +92,9 @@ const start = async () => {
   } catch (error) {
     console.error('⚠️ Error sincronizando daily_summaries:', error.message);
   }
+
+  // Avisos push de stock bajo: revisa cada 5 minutos
+  push.iniciarRevisionPeriodica();
 
   app.listen(PORT, () => {
     console.log(`\n🚀 Servidor corriendo en http://localhost:${PORT}`);
