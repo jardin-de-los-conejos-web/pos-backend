@@ -132,6 +132,14 @@ const processPayment = async (req, res) => {
       console.error('⚠️ Error descontando inventario (pago guardado igual):', invErr.message)
     }
 
+    // Smoothie: tapadera y pajilla de smoothie (órdenes de la versión actual de la app)
+    try {
+      const itemsSmoothie = await OrderItem.findAll({ where: { order_id } })
+      await require('../services/smoothie').descontarInsumos(itemsSmoothie)
+    } catch (smErr) {
+      console.error('⚠️ Smoothie:', smErr.message)
+    }
+
     // Avisa a los iPads (push) si algo quedó en stock bajo después de la venta
     require('../services/push').revisarEnSegundoPlano()
 

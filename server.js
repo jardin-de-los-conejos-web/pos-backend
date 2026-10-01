@@ -20,6 +20,7 @@ const cocinaRoutes = require('./routes/cocina');
 const ticketsRoutes = require('./routes/tickets'); // ← NUEVO
 const deviceRoutes = require('./routes/devices'); // ← push de stock bajo
 const push = require('./services/push');
+const smoothie = require('./services/smoothie'); // ← Smoothie en Bebidas
 
 
 const app = express();
@@ -95,6 +96,9 @@ const start = async () => {
 
   // Avisos push de stock bajo: revisa cada 5 minutos
   push.iniciarRevisionPeriodica();
+
+  // Producto Smoothie (con foto) en Bebidas
+  await smoothie.asegurarProducto();
 
   app.listen(PORT, () => {
     console.log(`\n🚀 Servidor corriendo en http://localhost:${PORT}`);
