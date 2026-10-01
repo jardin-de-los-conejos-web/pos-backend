@@ -1,5 +1,22 @@
 const { Payment, Order, OrderItem, Table, sequelize } = require('../models');
 
+
+// ── Conversión de pesos entre la unidad de la receta y la del inventario ──
+const GRAMOS_POR = { g: 1, kg: 1000, lb: 453.592, oz: 28.3495 }
+function unidadPeso(u) {
+  const t = String(u || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '')
+  if (t === 'g' || t === 'gr' || t === 'grs' || t.startsWith('gramo')) return 'g'
+  if (t === 'kg' || t.startsWith('kilo')) return 'kg'
+  if (t === 'lb' || t === 'lbs' || t.startsWith('libra')) return 'lb'
+  if (t === 'oz' || t.startsWith('onza')) return 'oz'
+  return null
+}
+function convertirPeso(cantidad, deUnidad, aUnidad) {
+  const de = unidadPeso(deUnidad), a = unidadPeso(aUnidad)
+  if (!de || !a || de === a) return cantidad
+  return cantidad * GRAMOS_POR[de] / GRAMOS_POR[a]
+}
+
 const processPayment = async (req, res) => {
   const t = await sequelize.transaction();
   try {
@@ -98,7 +115,8 @@ const processPayment = async (req, res) => {
         const { sequelize: sq } = require('../models')
 
         const [recipes] = await sq.query(
-          `SELECT r.inventory_item_id, r.quantity_used, i.name as item_name, i.quantity as current_qty
+          `SELECT r.inventory_item_id, r.quantity_used, r.unit as recipe_unit, i.unit as item_unit,
+                  i.name as item_name, i.quantity as current_qty
            FROM product_recipes r
            JOIN inventory_items i ON i.id = r.inventory_item_id
            WHERE LOWER(r.product_name) = LOWER(?) AND r.is_active = 1 AND i.is_active = 1`,
@@ -106,7 +124,9 @@ const processPayment = async (req, res) => {
         )
 
         for (const recipe of recipes) {
-          const toDeduct = parseFloat(recipe.quantity_used) * qtySold
+          // Si la receta quedó en otra unidad de peso que el inventario (ej. receta en
+          // libras y la fruta ahora en gramos), se convierte para no descontar mal.
+          const toDeduct = convertirPeso(parseFloat(recipe.quantity_used), recipe.recipe_unit, recipe.item_unit) * qtySold
           const newQty   = Math.max(0, parseFloat(recipe.current_qty) - toDeduct)
 
           await sq.query(
