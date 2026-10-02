@@ -21,6 +21,8 @@ const ticketsRoutes = require('./routes/tickets'); // ← NUEVO
 const deviceRoutes = require('./routes/devices'); // ← push de stock bajo
 const historialRoutes = require('./routes/historial'); // ← historial de transacciones
 const ajustesRoutes = require('./routes/ajustes'); // ← cancelar orden / cambiar producto
+const actividad = require('./services/actividad'); // ← quién hizo cada orden, cobro y gasto
+const actividadRoutes = require('./routes/actividad');
 const recetasAlEnviar = require('./services/recetasAlEnviar'); // ← recetas al enviar la orden
 const push = require('./services/push');
 const smoothie = require('./services/smoothie'); // ← Smoothie en Bebidas
@@ -61,6 +63,7 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.use('/api', actividad.middleware); // ← registra el usuario (encabezado X-Usuario de la app)
 app.use('/api/auth', authRoutes);
 app.use('/api/auth', twoFactorRoutes);
 app.use('/api/pos-transactions', posTransactionsRoutes);
@@ -78,6 +81,7 @@ app.use('/api/tickets', ticketsRoutes); // ← NUEVO
 app.use('/api/devices', deviceRoutes); // ← push de stock bajo
 app.use('/api/historial', historialRoutes); // ← historial de transacciones
 app.use('/api/ajustes', ajustesRoutes); // ← cancelar orden / cambiar producto
+app.use('/api/actividad', actividadRoutes); // ← resumen por usuario
 
 // ========================
 //    ERROR HANDLERS
