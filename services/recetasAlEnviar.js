@@ -140,4 +140,4 @@ function middleware(req, res, next) {
   next()
 }
 
-module.exports = { middleware, descontarOrden, yaDescontados, asegurarTabla }
+module.exports = { middleware, descontarOrden, yaDescontados, asegurarTabla, convertirPeso }

@@ -20,6 +20,7 @@ const cocinaRoutes = require('./routes/cocina');
 const ticketsRoutes = require('./routes/tickets'); // ← NUEVO
 const deviceRoutes = require('./routes/devices'); // ← push de stock bajo
 const historialRoutes = require('./routes/historial'); // ← historial de transacciones
+const ajustesRoutes = require('./routes/ajustes'); // ← cancelar orden / cambiar producto
 const recetasAlEnviar = require('./services/recetasAlEnviar'); // ← recetas al enviar la orden
 const push = require('./services/push');
 const smoothie = require('./services/smoothie'); // ← Smoothie en Bebidas
@@ -76,6 +77,7 @@ app.use('/api/cocina', cocinaRoutes);
 app.use('/api/tickets', ticketsRoutes); // ← NUEVO
 app.use('/api/devices', deviceRoutes); // ← push de stock bajo
 app.use('/api/historial', historialRoutes); // ← historial de transacciones
+app.use('/api/ajustes', ajustesRoutes); // ← cancelar orden / cambiar producto
 
 // ========================
 //    ERROR HANDLERS

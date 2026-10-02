@@ -38,6 +38,7 @@ router.get('/', async (req, res) => {
        LEFT JOIN tables t ON t.id = o.table_id
        LEFT JOIN cocina_order_numbers cn ON cn.order_id = o.id
        WHERE o.created_at >= ? AND o.created_at < ?
+         AND o.status <> 'cancelled'
        ORDER BY o.created_at DESC`,
       { replacements: [desde, hasta] }
     )
@@ -46,7 +47,7 @@ router.get('/', async (req, res) => {
     let items = [], pagos = []
     if (ids.length) {
       ;[items] = await sequelize.query(
-        `SELECT oi.order_id, COALESCE(oi.product_name, p.name, 'Producto') AS name,
+        `SELECT oi.id AS item_id, oi.order_id, COALESCE(oi.product_name, p.name, 'Producto') AS name,
                 oi.quantity, oi.unit_price, oi.subtotal, oi.notes
          FROM order_items oi
          LEFT JOIN products p ON p.id = oi.product_id
@@ -71,7 +72,8 @@ router.get('/', async (req, res) => {
       let efectivo = 0, tarjeta = 0, transferencia = 0
       for (const p of pagosOrden) {
         const monto = num(p.amount_paid)
-        if (p.method === 'cash') efectivo += Math.max(0, monto - num(p.change_given))
+        // monto negativo = devolución por un cambio de producto
+        if (p.method === 'cash') efectivo += monto < 0 ? monto : Math.max(0, monto - num(p.change_given))
         else if (p.method === 'card') tarjeta += monto
         else if (p.method === 'transfer') transferencia += monto
         else { // mixed u otro
@@ -111,6 +113,7 @@ router.get('/', async (req, res) => {
         created_at: o.created_at,
         paid_at: pagosOrden.length ? pagosOrden[pagosOrden.length - 1].paid_at : null,
         items: items.filter(i => i.order_id === o.id).map(i => ({
+          id: i.item_id,
           name: i.name,
           quantity: num(i.quantity),
           unit_price: num(i.unit_price),
