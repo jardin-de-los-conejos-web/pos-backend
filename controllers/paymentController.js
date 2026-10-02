@@ -106,8 +106,11 @@ const processPayment = async (req, res) => {
     // ── Descontar ingredientes del inventario según recetas ──
     try {
       const orderItems = await OrderItem.findAll({ where: { order_id } })
+      // Lo que ya se descontó al ENVIAR la orden (services/recetasAlEnviar.js) no se repite
+      const yaDescontados = await require('../services/recetasAlEnviar').yaDescontados(order_id)
 
       for (const item of orderItems) {
+        if (yaDescontados.has(item.id)) continue
         const productName = (item.product_name || '').trim()
         const qtySold = Number(item.quantity || 1)
         if (!productName || qtySold <= 0) continue

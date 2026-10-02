@@ -20,6 +20,7 @@ const cocinaRoutes = require('./routes/cocina');
 const ticketsRoutes = require('./routes/tickets'); // ← NUEVO
 const deviceRoutes = require('./routes/devices'); // ← push de stock bajo
 const historialRoutes = require('./routes/historial'); // ← historial de transacciones
+const recetasAlEnviar = require('./services/recetasAlEnviar'); // ← recetas al enviar la orden
 const push = require('./services/push');
 const smoothie = require('./services/smoothie'); // ← Smoothie en Bebidas
 
@@ -65,6 +66,7 @@ app.use('/api/pos-transactions', posTransactionsRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/tables', tableRoutes);
+app.use('/api/orders', recetasAlEnviar.middleware); // ← descuenta recetas al enviar (app iOS)
 app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/reports', reportRoutes);
