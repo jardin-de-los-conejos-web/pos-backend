@@ -55,7 +55,7 @@ router.get('/', async (req, res) => {
         { replacements: [ids] }
       )
       ;[pagos] = await sequelize.query(
-        `SELECT order_id, method, amount_paid, cash_amount, card_amount, transfer_amount,
+        `SELECT order_id, method, amount_paid, change_given, cash_amount, card_amount, transfer_amount,
                 tip_amount, status, COALESCE(paid_at, created_at) AS paid_at
          FROM payments
          WHERE order_id IN (?) AND (status IS NULL OR status <> 'refunded')
@@ -71,13 +71,17 @@ router.get('/', async (req, res) => {
       let efectivo = 0, tarjeta = 0, transferencia = 0
       for (const p of pagosOrden) {
         const monto = num(p.amount_paid)
-        if (p.method === 'cash') efectivo += monto
+        if (p.method === 'cash') efectivo += Math.max(0, monto - num(p.change_given))
         else if (p.method === 'card') tarjeta += monto
         else if (p.method === 'transfer') transferencia += monto
         else { // mixed u otro
           efectivo += num(p.cash_amount); tarjeta += num(p.card_amount); transferencia += num(p.transfer_amount)
         }
       }
+      // En efectivo la app guarda lo RECIBIDO (ej. Q100 por una orden de Q10):
+      // lo que pase del total de la orden es cambio, no venta.
+      const exceso = efectivo + tarjeta + transferencia - num(o.total)
+      if (exceso > 0 && num(o.total) > 0) efectivo = Math.max(0, efectivo - exceso)
       const cobrado = efectivo + tarjeta + transferencia
       if (o.status === 'paid' || pagosOrden.length) {
         resumen.cobradas += 1
