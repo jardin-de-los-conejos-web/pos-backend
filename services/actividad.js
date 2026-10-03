@@ -96,10 +96,22 @@ async function clasificar(req, ruta, cuerpo, usuario) {
   // Cobro
   if (req.method === 'POST' && /^\/api\/payments\/?$/.test(ruta) && b.order_id) {
     const [[p]] = await sequelize.query(
-      `SELECT amount_paid, change_given, method FROM payments WHERE order_id = ? ORDER BY id DESC LIMIT 1`,
+      `SELECT amount_paid, change_given, method, cash_amount, card_amount, transfer_amount
+       FROM payments WHERE order_id = ? ORDER BY id DESC LIMIT 1`,
       { replacements: [b.order_id] }
     )
     const monto = p ? num(p.amount_paid) - num(p.change_given) : num(b.amount_paid)
+    // Pago combinado: un registro por forma de pago (el vuelto sale del efectivo)
+    if ((p?.method || b.method) === 'mixed') {
+      const tarjeta = num(p ? p.card_amount : b.card_amount)
+      const transf = num(p ? p.transfer_amount : b.transfer_amount)
+      const efectivo = Math.max(0, monto - tarjeta - transf)
+      for (const [met, m2] of [['efectivo', efectivo], ['tarjeta', tarjeta], ['transferencia', transf]]) {
+        if (m2 > 0) await registrar({ usuario, tipo: 'cobro', orderId: Number(b.order_id), monto: m2, metodo: met,
+          detalle: 'Pago combinado' })
+      }
+      return
+    }
     const metodo = METODOS[p?.method || b.method] || b.method || null
     return registrar({ usuario, tipo: 'cobro', orderId: Number(b.order_id), monto, metodo })
   }

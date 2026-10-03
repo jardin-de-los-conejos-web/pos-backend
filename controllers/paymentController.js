@@ -92,12 +92,29 @@ const processPayment = async (req, res) => {
       const posMeth = methodMap[method] || method || 'efectivo'
 
       const { sequelize: sq } = require('../models')
-      await sq.query(
-      `INSERT INTO pos_transactions
-        (transaction_date, table_number, person, method, amount, items, user_name, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-          { replacements: [dateGT, 0, 1, posMeth, total, JSON.stringify(items), 'App iOS'] }
-        )
+
+      // Pago combinado: una fila por cada forma de pago, para que el cierre
+      // sume bien los cobros en efectivo, tarjeta y transferencia.
+      // El vuelto sale del efectivo. Los productos van solo en la primera fila.
+      let partes = [[posMeth, total]]
+      if (method === 'mixed') {
+        const tarjeta = Math.max(0, parseFloat(card_amount || 0))
+        const transf  = Math.max(0, parseFloat(transfer_amount || 0))
+        const efectivo = Math.max(0, parseFloat((total - tarjeta - transf).toFixed(2)))
+        partes = [['efectivo', efectivo], ['tarjeta', tarjeta], ['transferencia', transf]]
+          .filter(([, monto]) => monto > 0)
+        if (!partes.length) partes = [['efectivo', total]]
+      }
+
+      for (let i = 0; i < partes.length; i++) {
+        const [metodoParte, montoParte] = partes[i]
+        await sq.query(
+        `INSERT INTO pos_transactions
+          (transaction_date, table_number, person, method, amount, items, user_name, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+            { replacements: [dateGT, 0, 1, metodoParte, montoParte, JSON.stringify(i === 0 ? items : []), 'App iOS'] }
+          )
+      }
     } catch (syncErr) {
       // No romper el pago si falla la sincronización
       console.error('pos_transactions sync error:', syncErr.message)
