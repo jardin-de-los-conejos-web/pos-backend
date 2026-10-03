@@ -157,34 +157,39 @@ router.post('/ordenes/:id/cambiar', async (req, res) => {
     const diferencia = redondear(nuevoPrecio - precioViejo)
     const fecha = todayGT()
 
-    // 1) Inventario: regresa 1 del que sale y descuenta 1 del que entra
-    //    (la orden ya está cobrada, así que su receta ya se había descontado)
-    await moverReceta(viejo.product_name, 1, 'entrada', `Cambio: regresa 1x ${viejo.product_name}`, userName)
-    await moverReceta(nuevoNombre, 1, 'salida', `Cambio: 1x ${nuevoNombre} (por ${viejo.product_name})`, userName)
-
-    // 2) La orden: una unidad menos del viejo, una del nuevo
-    if (num(viejo.quantity) > 1) {
-      await viejo.update({ quantity: num(viejo.quantity) - 1 })
-    } else {
-      await sequelize.query(`DELETE FROM receta_descontada WHERE order_item_id = ?`, { replacements: [viejo.id] })
-      await viejo.destroy()
-    }
+    // 1) El producto nuevo se crea PRIMERO: si algo falla aquí, la orden queda
+    //    como estaba (antes se borraba el viejo y luego fallaba el nuevo).
     const nuevo = await OrderItem.create({
       order_id: orderId,
       product_id: Number(product_id) || viejo.product_id,
       product_name: nuevoNombre,
       unit_price: nuevoPrecio,
       quantity: 1,
+      subtotal: nuevoPrecio,
+      discount_amount: 0,
       notes: [notes, `Cambio por ${viejo.product_name}`].filter(Boolean).join(' · ').slice(0, 300),
       status: 'served',
     })
-    // Ya se descontó arriba: que el cobro no lo vuelva a descontar
+    // Su receta se descuenta aquí abajo: que el cobro no lo vuelva a descontar
     await sequelize.query(`INSERT IGNORE INTO receta_descontada (order_item_id) VALUES (?)`, { replacements: [nuevo.id] })
+
+    // 2) Una unidad menos del viejo
+    if (num(viejo.quantity) > 1) {
+      await viejo.update({ quantity: num(viejo.quantity) - 1 })
+    } else {
+      await sequelize.query(`DELETE FROM receta_descontada WHERE order_item_id = ?`, { replacements: [viejo.id] })
+      await viejo.destroy()
+    }
 
     await sequelize.query(
       `UPDATE orders SET total = total + ?, subtotal = subtotal + ?, updated_at = NOW() WHERE id = ?`,
       { replacements: [diferencia, diferencia, orderId] }
     )
+
+    // Inventario: regresa 1 del que sale y descuenta 1 del que entra
+    // (la orden ya está cobrada, así que su receta ya se había descontado)
+    await moverReceta(viejo.product_name, 1, 'entrada', `Cambio: regresa 1x ${viejo.product_name}`, userName)
+    await moverReceta(nuevoNombre, 1, 'salida', `Cambio: 1x ${nuevoNombre} (por ${viejo.product_name})`, userName)
 
     // 3) Dinero: se cobra la diferencia (positiva) o se devuelve (negativa)
     if (diferencia !== 0) {

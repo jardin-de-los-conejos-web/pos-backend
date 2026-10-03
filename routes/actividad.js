@@ -31,6 +31,55 @@ router.get('/', async (req, res) => {
       { replacements: [date] }
     )
 
+    // Cobros que no tienen usuario (hechos con la versión anterior de la app,
+    // que todavía no mandaba X-Usuario): salen como "Sin usuario".
+    const desde = new Date(`${date}T06:00:00Z`)
+    const hasta = new Date(desde.getTime() + 24 * 60 * 60 * 1000)
+    const conUsuario = new Set(filas.filter(f => f.tipo === 'cobro' && f.order_id).map(f => f.order_id))
+    const [pagosDia] = await sequelize.query(
+      `SELECT order_id, method, amount_paid, change_given, cash_amount, card_amount, transfer_amount,
+              COALESCE(paid_at, created_at) AS created_at
+       FROM payments
+       WHERE COALESCE(paid_at, created_at) >= ? AND COALESCE(paid_at, created_at) < ?
+         AND (status IS NULL OR status NOT IN ('refunded','cancelled')) AND amount_paid > 0`,
+      { replacements: [desde, hasta] }
+    )
+    const METODO = { cash: 'efectivo', card: 'tarjeta', transfer: 'transferencia' }
+    for (const p of pagosDia) {
+      if (conUsuario.has(p.order_id)) continue
+      const monto = num(p.amount_paid) - num(p.change_given)
+      const partes = p.method === 'mixed'
+        ? [['tarjeta', num(p.card_amount)], ['transferencia', num(p.transfer_amount)]]
+        : [[METODO[p.method] || 'efectivo', monto]]
+      if (p.method === 'mixed') partes.unshift(['efectivo', Math.max(0, monto - num(p.card_amount) - num(p.transfer_amount))])
+      for (const [metodo, m] of partes) {
+        if (m > 0) filas.push({ user_name: 'Sin usuario (versión anterior)', tipo: 'cobro', order_id: p.order_id,
+          monto: m, metodo, detalle: null, created_at: p.created_at })
+      }
+    }
+
+    // Qué se cobró: mesa/ticket y productos de cada orden
+    const idsOrden = [...new Set(filas.map(f => f.order_id).filter(Boolean))]
+    const infoOrden = {}
+    if (idsOrden.length) {
+      const [ords] = await sequelize.query(
+        `SELECT o.id, COALESCE(t.name, o.customer_name) AS mesa
+         FROM orders o LEFT JOIN tables t ON t.id = o.table_id WHERE o.id IN (?)`,
+        { replacements: [idsOrden] }
+      )
+      const [its] = await sequelize.query(
+        `SELECT order_id, product_name, quantity FROM order_items WHERE order_id IN (?) ORDER BY id`,
+        { replacements: [idsOrden] }
+      )
+      for (const o of ords) infoOrden[o.id] = { mesa: o.mesa || '', items: [] }
+      for (const i of its) infoOrden[i.order_id]?.items.push(`${num(i.quantity)}x ${i.product_name}`)
+    }
+    for (const f of filas) {
+      if (f.tipo !== 'cobro' || !f.order_id || !infoOrden[f.order_id]) continue
+      const io = infoOrden[f.order_id]
+      f.detalle = [io.mesa, io.items.join(', '), f.detalle].filter(Boolean).join(' · ')
+    }
+
     const usuarios = {}
     const de = nombre => {
       const k = (nombre || 'Sin usuario').trim() || 'Sin usuario'
