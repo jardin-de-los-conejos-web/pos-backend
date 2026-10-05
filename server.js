@@ -23,6 +23,7 @@ const historialRoutes = require('./routes/historial'); // ← historial de trans
 const ajustesRoutes = require('./routes/ajustes'); // ← cancelar orden / cambiar producto
 const actividad = require('./services/actividad'); // ← quién hizo cada orden, cobro y gasto
 const actividadRoutes = require('./routes/actividad');
+const reconstruirRoutes = require('./routes/reconstruir'); // ← rehacer un día desde recibos
 const recetasAlEnviar = require('./services/recetasAlEnviar'); // ← recetas al enviar la orden
 const push = require('./services/push');
 const smoothie = require('./services/smoothie'); // ← Smoothie en Bebidas
@@ -82,6 +83,7 @@ app.use('/api/devices', deviceRoutes); // ← push de stock bajo
 app.use('/api/historial', historialRoutes); // ← historial de transacciones
 app.use('/api/ajustes', ajustesRoutes); // ← cancelar orden / cambiar producto
 app.use('/api/actividad', actividadRoutes); // ← resumen por usuario
+app.use('/api/reconstruir-dia', reconstruirRoutes); // ← rehacer un día desde recibos
 
 // ========================
 //    ERROR HANDLERS
