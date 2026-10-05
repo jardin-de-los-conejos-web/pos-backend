@@ -38,6 +38,13 @@ function fechaGT(date, hora) {
   return new Date(Date.UTC(...date.split('-').map((x, i) => i === 1 ? Number(x) - 1 : Number(x)), h + 6, m || 0))
 }
 
+// Productos del menú que en inventario se llaman distinto
+const ALIAS_INVENTARIO = {
+  'gaseosa naranja': 'Naranja',
+  'gaseosa uva': 'Fanta Uva',
+  'gaseosa sprite': 'Sprite',
+}
+
 async function moverReceta(nombre, veces, tipo, motivo) {
   if (!nombre || veces <= 0) return
   const limpio = String(nombre).trim()
@@ -48,10 +55,12 @@ async function moverReceta(nombre, veces, tipo, motivo) {
     { replacements: [limpio] }
   )
   if (!rs.length) {
+    // Sin receta: el producto de inventario con el mismo nombre (o su equivalente)
+    const nombreInv = ALIAS_INVENTARIO[limpio.toLowerCase()] || limpio
     ;[rs] = await sequelize.query(
       `SELECT id AS inventory_item_id, 1 AS quantity_used, unit AS recipe_unit, unit AS item_unit
        FROM inventory_items WHERE LOWER(name) = LOWER(?) AND is_active = 1 LIMIT 1`,
-      { replacements: [limpio] }
+      { replacements: [nombreInv] }
     )
   }
   for (const r of rs) {
