@@ -130,6 +130,124 @@ router.post('/ordenes/:id/cancelar', async (req, res) => {
   }
 })
 
+// ── Eliminar una orden (cobrada o no) ───────────────────────────────────────
+// Para borrar una transacción que ya está en el sistema (se hizo por error, es de
+// prueba, etc.): regresa al inventario las recetas de sus productos, quita su dinero
+// del cierre de caja y de las estadísticas (pos_transactions) y la deja marcada como
+// cancelada (no se borra de la base: queda el rastro, pero ya no cuenta).
+router.post('/ordenes/:id/eliminar', async (req, res) => {
+  try {
+    const orderId = Number(req.params.id)
+    const userName = req.body?.user_name || 'App iOS'
+    await recetas.asegurarTabla()
+
+    const [[orden]] = await sequelize.query(`SELECT * FROM orders WHERE id = ?`, { replacements: [orderId] })
+    if (!orden) return res.status(404).json({ success: false, message: 'Orden no encontrada' })
+    if (orden.status === 'cancelled') return res.json({ success: true, message: 'La orden ya estaba eliminada' })
+
+    const estabaCobrada = orden.status === 'paid'
+
+    // 1) Inventario: lo que se descontó de esta orden vuelve.
+    //    - Orden cobrada: todos sus productos se descontaron (al enviar o al cobrar).
+    //    - Orden sin cobrar: solo los que se descontaron al enviarla.
+    const [items] = await sequelize.query(
+      `SELECT id, product_name, quantity FROM order_items
+       WHERE order_id = ? AND (status IS NULL OR status <> 'cancelled')`,
+      { replacements: [orderId] }
+    )
+    let registrados = new Set()
+    if (items.length) {
+      const [rd] = await sequelize.query(
+        `SELECT order_item_id FROM receta_descontada WHERE order_item_id IN (?)`,
+        { replacements: [items.map(i => i.id)] }
+      )
+      registrados = new Set(rd.map(r => r.order_item_id))
+    }
+    let devueltos = 0
+    for (const it of items) {
+      if (estabaCobrada || registrados.has(it.id)) {
+        await moverReceta(it.product_name, num(it.quantity), 'entrada',
+          `Orden eliminada: ${num(it.quantity)}x ${it.product_name}`, userName)
+        devueltos++
+      }
+    }
+    if (items.length) {
+      await sequelize.query(`DELETE FROM receta_descontada WHERE order_item_id IN (?)`,
+        { replacements: [items.map(i => i.id)] })
+    }
+
+    // 2) Dinero: se quita del cierre / estadísticas lo que esta orden cobró.
+    //    pos_transactions no guarda el id de la orden, así que se busca la fila que
+    //    coincide en método, monto y hora (±15 min) con cada pago.
+    const [pagos] = await sequelize.query(
+      `SELECT * FROM payments WHERE order_id = ? AND (status IS NULL OR status NOT IN ('refunded','cancelled'))`,
+      { replacements: [orderId] }
+    )
+    const quitarFila = async (metodo, monto, cuando) => {
+      const [[fila]] = await sequelize.query(
+        `SELECT id FROM pos_transactions
+         WHERE method = ? AND ABS(amount - ?) < 0.005
+           AND ABS(TIMESTAMPDIFF(SECOND, created_at, ?)) <= 900
+         ORDER BY ABS(TIMESTAMPDIFF(SECOND, created_at, ?)) LIMIT 1`,
+        { replacements: [metodo, monto, cuando, cuando] }
+      )
+      if (!fila) return false
+      await sequelize.query(`DELETE FROM pos_transactions WHERE id = ?`, { replacements: [fila.id] })
+      return true
+    }
+    const metodoPos = { cash: 'efectivo', card: 'tarjeta', transfer: 'transferencia' }
+    let esperadas = 0, quitadas = 0
+    for (const p of pagos) {
+      const neto = redondear(num(p.amount_paid) - num(p.change_given))
+      const cuando = p.paid_at || p.created_at
+      let partes
+      if (p.method === 'mixed') {
+        const tarj = num(p.card_amount), trans = num(p.transfer_amount)
+        partes = [['efectivo', redondear(neto - tarj - trans)], ['tarjeta', tarj], ['transferencia', trans]]
+          .filter(([, m]) => m > 0)
+      } else {
+        partes = [[metodoPos[p.method] || p.method, neto]]
+      }
+      let ok = 0
+      for (const [m, monto] of partes) { esperadas++; if (await quitarFila(m, monto, cuando)) { ok++; quitadas++ } }
+      // Pagos combinados viejos se guardaron como una sola fila 'mixed'
+      if (p.method === 'mixed' && ok === 0 && await quitarFila('mixed', neto, cuando)) { quitadas += 1; esperadas += 0 }
+    }
+    if (pagos.length) {
+      await sequelize.query(
+        `UPDATE payments SET status = 'refunded', updated_at = NOW() WHERE order_id = ? AND (status IS NULL OR status NOT IN ('refunded','cancelled'))`,
+        { replacements: [orderId] }
+      )
+    }
+
+    // 3) La orden queda cancelada (ya no sale en historial, cocina ni estadísticas)
+    await sequelize.query(
+      `UPDATE orders SET status = 'cancelled', closed_at = NOW(), updated_at = NOW() WHERE id = ?`,
+      { replacements: [orderId] }
+    )
+    await sequelize.query(
+      `UPDATE order_items SET status = 'cancelled', updated_at = NOW() WHERE order_id = ?`,
+      { replacements: [orderId] }
+    )
+    // Una orden cobrada ya había liberado su mesa; esa mesa puede tener otra cuenta ahora.
+    if (!estabaCobrada && orden.table_id) {
+      await sequelize.query(`UPDATE tables SET status = 'available' WHERE id = ?`, { replacements: [orden.table_id] })
+    }
+
+    res.json({
+      success: true,
+      message: 'Orden eliminada',
+      devueltos,
+      pagos: pagos.length,
+      quitadasDelCierre: quitadas,
+      esperadasDelCierre: esperadas,
+    })
+  } catch (err) {
+    console.error('ajustes eliminar error:', err)
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
 // ── Cambiar un producto de una orden cobrada ─────────────────────────────────
 // body: { order_item_id, product_id, product_name, price, notes?, metodo: 'efectivo'|'tarjeta'|'transferencia', user_name? }
 router.post('/ordenes/:id/cambiar', async (req, res) => {
