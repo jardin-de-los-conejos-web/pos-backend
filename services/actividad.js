@@ -47,6 +47,8 @@ function fechaGT() {
 }
 
 function usuarioDe(req) {
+  // Con sesión, el nombre sale del token (no se puede falsificar). El encabezado queda de respaldo.
+  if (req.user?.name) return String(req.user.name).trim().slice(0, 100)
   const h = req.headers['x-usuario']
   if (!h) return null
   let nombre = String(h)

@@ -2,6 +2,7 @@
 const express = require('express')
 const router = express.Router()
 const push = require('../services/push')
+const { requireSupervisor } = require('../middleware/auth')
 
 // POST /api/devices/register  { token, environment: 'production'|'sandbox', user_name }
 router.post('/register', async (req, res) => {
@@ -18,7 +19,7 @@ router.post('/register', async (req, res) => {
 })
 
 // POST /api/devices/test  → manda un aviso de prueba a todos los iPads
-router.post('/test', async (req, res) => {
+router.post('/test', requireSupervisor, async (req, res) => {
   try {
     const r = await push.enviarATodos('🐇 Prueba de avisos', 'Si ves esto, las notificaciones de stock bajo ya funcionan.')
     res.json({ success: true, push_configured: push.configurado(), ...r })

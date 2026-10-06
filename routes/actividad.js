@@ -12,11 +12,12 @@ const express = require('express')
 const router = express.Router()
 const { sequelize } = require('../config/database')
 const actividad = require('../services/actividad')
+const { protect, requireSupervisor } = require('../middleware/auth')
 
 const num = v => Number(v || 0)
 const r2 = v => Math.round(v * 100) / 100
 
-router.get('/', async (req, res) => {
+router.get('/', protect, requireSupervisor, async (req, res) => {
   try {
     await actividad.asegurarTabla()
     const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : actividad.fechaGT()

@@ -7,7 +7,7 @@ const crypto = require('crypto')
 const jwt = require('jsonwebtoken')
 const rateLimit = require('express-rate-limit')
 const { User } = require('../models')
-const { protect } = require('../middleware/auth')
+const { protect, protectPendiente, marcarSesionVerificada } = require('../middleware/auth')
 const { sequelize } = require('../config/database')
 
 // Rate limiter para endpoints de 2FA
@@ -327,7 +327,7 @@ router.post('/2fa/disable', protect, totpLimiter, async (req, res) => {
 //  POST /api/auth/2fa/verify-login
 //  Verifica TOTP después del login con PIN — requiere JWT temporal
 // ═══════════════════════════════════════════════════════════════
-router.post('/2fa/verify-login', protect, totpLimiter, async (req, res) => {
+router.post('/2fa/verify-login', protectPendiente, totpLimiter, async (req, res) => {
   try {
     const userId = req.user.id
     const { totpCode } = req.body
@@ -361,6 +361,9 @@ router.post('/2fa/verify-login', protect, totpLimiter, async (req, res) => {
     if (!verified) {
       return res.status(400).json({ success: false, message: 'Código incorrecto' })
     }
+
+    // Desde aquí el token con el que inició sesión ya funciona en toda la API
+    await marcarSesionVerificada(req.user.jti, userId)
 
     res.json({ success: true })
   } catch (err) {

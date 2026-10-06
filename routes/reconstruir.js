@@ -27,6 +27,7 @@
 const express = require('express')
 const router = express.Router()
 const { sequelize } = require('../config/database')
+const { protect, requireSupervisor } = require('../middleware/auth')
 const recetas = require('../services/recetasAlEnviar')
 
 const num = v => Number(v || 0)
@@ -79,7 +80,8 @@ async function moverReceta(nombre, veces, tipo, motivo) {
   }
 }
 
-router.post('/', async (req, res) => {
+// Borra y recrea un día completo: solo un supervisor con sesión iniciada.
+router.post('/', protect, requireSupervisor, async (req, res) => {
   try {
     const { date, recibos, dry_run } = req.body || {}
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || !Array.isArray(recibos) || !recibos.length) {

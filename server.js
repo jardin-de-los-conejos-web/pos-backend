@@ -21,6 +21,7 @@ const ticketsRoutes = require('./routes/tickets'); // ← NUEVO
 const deviceRoutes = require('./routes/devices'); // ← push de stock bajo
 const historialRoutes = require('./routes/historial'); // ← historial de transacciones
 const ajustesRoutes = require('./routes/ajustes'); // ← cancelar orden / cambiar producto
+const { puertaGeneral } = require('./middleware/auth');
 const actividad = require('./services/actividad'); // ← quién hizo cada orden, cobro y gasto
 const actividadRoutes = require('./routes/actividad');
 const reconstruirRoutes = require('./routes/reconstruir'); // ← rehacer un día desde recibos
@@ -31,6 +32,10 @@ const smoothie = require('./services/smoothie'); // ← Smoothie en Bebidas
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Railway pone un proxy delante: sin esto todas las visitas parecen venir de la misma IP
+// y los límites de intentos (login, 2FA) no distinguen a nadie.
+app.set('trust proxy', 1);
 
 // ========================
 //    MIDDLEWARES
@@ -49,7 +54,7 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ========================
@@ -64,7 +69,8 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-app.use('/api', actividad.middleware); // ← registra el usuario (encabezado X-Usuario de la app)
+app.use('/api', puertaGeneral);          // ← todo exige sesión (menos login, lista de nombres y registro de avisos)
+app.use('/api', actividad.middleware); // ← registra quién hizo cada cosa (sale del token de la sesión)
 app.use('/api/auth', authRoutes);
 app.use('/api/auth', twoFactorRoutes);
 app.use('/api/pos-transactions', posTransactionsRoutes);

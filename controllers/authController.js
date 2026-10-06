@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const speakeasy = require('speakeasy');
 const { User } = require('../models');
 
@@ -22,6 +23,7 @@ const login = async (req, res) => {
     }
 
     let authenticatedUser = null;
+    let entroConCodigo2FA = false;
 
     for (const user of users) {
       // ── Si el usuario tiene 2FA activo y el PIN tiene 6 dígitos ──
@@ -34,6 +36,7 @@ const login = async (req, res) => {
         });
         if (totpValid) {
           authenticatedUser = user;
+          entroConCodigo2FA = true;
           break;
         }
       } else {
@@ -51,14 +54,19 @@ const login = async (req, res) => {
     }
 
     // Generar JWT
+    // Con 2FA activo, entrar solo con el PIN NO basta: el token queda "pendiente"
+    // hasta que se verifique el código (ver middleware/auth.js).
+    const tfaPendiente = !!(authenticatedUser.two_factor_enabled && authenticatedUser.two_factor_secret && !entroConCodigo2FA);
+
     const token = jwt.sign(
       {
         id: authenticatedUser.id,
         name: authenticatedUser.name,
         role: authenticatedUser.role,
+        ...(tfaPendiente ? { tfa: 'pending' } : {}),
       },
       process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN || '8h' }
+      { expiresIn: process.env.JWT_EXPIRES_IN || '72h', jwtid: crypto.randomUUID() }
     );
 
     res.json({

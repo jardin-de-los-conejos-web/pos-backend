@@ -17,6 +17,7 @@
 const express = require('express')
 const router = express.Router()
 const { sequelize } = require('../config/database')
+const { protect, requireSupervisor } = require('../middleware/auth')
 const { OrderItem, Payment } = require('../models')
 const recetas = require('../services/recetasAlEnviar')
 
@@ -75,7 +76,7 @@ async function pagosDe(orderId) {
 }
 
 // ── Cancelar orden (no cobrada) ──────────────────────────────────────────────
-router.post('/ordenes/:id/cancelar', async (req, res) => {
+router.post('/ordenes/:id/cancelar', protect, async (req, res) => {
   try {
     const orderId = Number(req.params.id)
     const userName = req.body?.user_name || 'App iOS'
@@ -135,7 +136,7 @@ router.post('/ordenes/:id/cancelar', async (req, res) => {
 // prueba, etc.): regresa al inventario las recetas de sus productos, quita su dinero
 // del cierre de caja y de las estadísticas (pos_transactions) y la deja marcada como
 // cancelada (no se borra de la base: queda el rastro, pero ya no cuenta).
-router.post('/ordenes/:id/eliminar', async (req, res) => {
+router.post('/ordenes/:id/eliminar', protect, requireSupervisor, async (req, res) => {
   try {
     const orderId = Number(req.params.id)
     const userName = req.body?.user_name || 'App iOS'
@@ -250,7 +251,7 @@ router.post('/ordenes/:id/eliminar', async (req, res) => {
 
 // ── Cambiar un producto de una orden cobrada ─────────────────────────────────
 // body: { order_item_id, product_id, product_name, price, notes?, metodo: 'efectivo'|'tarjeta'|'transferencia', user_name? }
-router.post('/ordenes/:id/cambiar', async (req, res) => {
+router.post('/ordenes/:id/cambiar', protect, requireSupervisor, async (req, res) => {
   try {
     const orderId = Number(req.params.id)
     const { order_item_id, product_id, product_name, price, notes, metodo, user_name } = req.body || {}
