@@ -53,6 +53,14 @@ function convertirPeso(cantidad, deUnidad, aUnidad) {
 /** Descuenta las recetas de los productos de la orden que todavía no se descontaron. */
 async function descontarOrden(orderId) {
   await asegurarTabla()
+
+  // Cuándo baja el inventario según el tipo de cuenta:
+  //   · Ticket (sin mesa, table_id vacío)  → al enviar la orden (aquí).
+  //   · Mesa (table_id) y Para llevar ("takeout") → NO aquí: se descuenta hasta que se confirma
+  //     el cobro (lo hace paymentController al registrar el pago).
+  const [[orden]] = await sequelize.query(`SELECT type, table_id FROM orders WHERE id = ?`, { replacements: [orderId] })
+  if (orden && (orden.type === 'takeout' || orden.table_id)) return
+
   const [items] = await sequelize.query(
     `SELECT oi.id, oi.product_name, oi.quantity
      FROM order_items oi
