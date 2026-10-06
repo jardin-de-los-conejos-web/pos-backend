@@ -263,6 +263,40 @@ const addItemToOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No se puede modificar una orden cerrada' });
     }
 
+    // Productos personalizados de la app (porciones, licuados con notas, envío...):
+    // llegan sin product_id, con nombre y precio. Igual que al crear la orden, se
+    // guardan tal cual. Antes aquí se rechazaban ("Producto no disponible") y la app
+    // cobraba de todos modos, así que ese dinero nunca llegaba al servidor.
+    if (!product_id) {
+      const nombre = String(req.body.product_name || '').trim();
+      const precio = parseFloat(req.body.unit_price);
+      const cant = Number(quantity) || 1;
+      if (!nombre || !(precio >= 0)) {
+        await t.rollback();
+        return res.status(400).json({ success: false, message: 'Falta el nombre o el precio del producto' });
+      }
+      await OrderItem.create({
+        order_id,
+        product_id: null,
+        product_name: nombre,
+        unit_price: precio,
+        quantity: cant,
+        subtotal: precio * cant,
+        notes: notes || null,
+      }, { transaction: t });
+
+      await recalculateOrderTotals(order_id, t);
+      await t.commit();
+
+      const ordenActualizada = await Order.findByPk(order_id, {
+        include: [
+          { model: Table, as: 'table' },
+          { model: OrderItem, as: 'items', include: [{ model: Product, as: 'product' }] },
+        ],
+      });
+      return res.status(201).json({ success: true, data: ordenActualizada, message: 'Producto agregado a la orden' });
+    }
+
     const product = await Product.findByPk(product_id, { transaction: t });
     // FIX: solo rechazar si explícitamente false (no si is_available es null)
     if (!product || product.is_available === false) {
