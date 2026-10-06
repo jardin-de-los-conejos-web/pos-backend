@@ -168,8 +168,10 @@ const createOrder = async (req, res) => {
 
     const today = new Date();
     const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
-    const orderCount = await Order.count();
-    const order_number = 'ORD-' + dateStr + '-' + String(orderCount + 1).padStart(4, '0');
+    // Por el id más alto, no por el conteo: si algún día se borran órdenes, el conteo repetía
+    // números y la orden nueva fallaba por número duplicado.
+    let secuencia = ((await Order.max('id', { transaction: t })) || 0) + 1;
+    const numeroOrden = n => 'ORD-' + dateStr + '-' + String(n).padStart(4, '0');
 
     // ── Resolver la mesa ──────────────────────────────────────────────
     // La referencia puede venir como table_id, table_name ("Mesa 2") o
@@ -200,19 +202,29 @@ const createOrder = async (req, res) => {
       } catch (_) {}
     }
 
-    const order = await Order.create({
-      order_number,
-      table_id: resolvedTableId,
-      customer_name: resolvedTableName,
-      // people_count es el nombre que usa la app iOS
-      customer_count: customer_count || people_count || 1,
-      type: type || 'dine_in',
-      notes,
-      subtotal,
-      tax_amount,
-      total,
-      status: 'open',
-    }, { transaction: t });
+    let order;
+    for (let intento = 0; ; intento++) {
+      try {
+        order = await Order.create({
+          order_number: numeroOrden(secuencia),
+          table_id: resolvedTableId,
+          customer_name: resolvedTableName,
+          // people_count es el nombre que usa la app iOS
+          customer_count: customer_count || people_count || 1,
+          type: type || 'dine_in',
+          notes,
+          subtotal,
+          tax_amount,
+          total,
+          status: 'open',
+        }, { transaction: t });
+        break;
+      } catch (e) {
+        // Dos órdenes al mismo tiempo pudieron pedir el mismo número: se prueba con el siguiente
+        if (e.name === 'SequelizeUniqueConstraintError' && intento < 5) { secuencia++; continue; }
+        throw e;
+      }
+    }
 
     const itemsWithOrderId = orderItemsData.map(item => ({ ...item, order_id: order.id }));
     await OrderItem.bulkCreate(itemsWithOrderId, { transaction: t });

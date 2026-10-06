@@ -28,6 +28,7 @@ const express = require('express')
 const router = express.Router()
 const { sequelize } = require('../config/database')
 const { protect, requireSupervisor } = require('../middleware/auth')
+const { insertarTransaccion } = require('../services/posTransactions')
 const recetas = require('../services/recetasAlEnviar')
 
 const num = v => Number(v || 0)
@@ -181,11 +182,10 @@ router.post('/', protect, requireSupervisor, async (req, res) => {
           { replacements: [orderId, `VTA-${r.ref}-${n}`.slice(0, 20), metodo, monto,
             metodo === 'cash' ? monto : 0, metodo === 'card' ? monto : 0, cuando, cuando, cuando] }
         )
-        await sequelize.query(
-          `INSERT INTO pos_transactions (transaction_date, table_number, person, method, amount, items, user_name, created_at)
-           VALUES (?, 0, 1, ?, ?, ?, 'Ventas del día', ?)`,
-          { replacements: [date, metodoPos, monto, n === 1 ? itemsJSON : '[]', cuando] }
-        )
+        await insertarTransaccion({
+          fecha: date, metodo: metodoPos, monto, items: n === 1 ? itemsJSON : '[]',
+          usuario: 'Ventas del día', orderId, creado: cuando,
+        })
       }
     }
 

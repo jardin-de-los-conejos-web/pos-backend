@@ -1,4 +1,5 @@
 const { Payment, Order, OrderItem, Table, sequelize } = require('../models');
+const { insertarTransaccion } = require('../services/posTransactions');
 
 
 // ── Conversión de pesos entre la unidad de la receta y la del inventario ──
@@ -42,8 +43,9 @@ const processPayment = async (req, res) => {
     // Generar numero de pago
     const today = new Date();
     const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
-    const paymentCount = await Payment.count();
-    const payment_number = 'PAY-' + dateStr + '-' + String(paymentCount + 1).padStart(4, '0');
+    // Por el id más alto, no por el conteo: si algún día se borran filas, el conteo repetía números.
+    const ultimoPago = (await Payment.max('id', { transaction: t })) || 0;
+    const payment_number = 'PAY-' + dateStr + '-' + String(ultimoPago + 1).padStart(4, '0');
 
     const payment = await Payment.create({
       payment_number,
@@ -108,12 +110,10 @@ const processPayment = async (req, res) => {
 
       for (let i = 0; i < partes.length; i++) {
         const [metodoParte, montoParte] = partes[i]
-        await sq.query(
-        `INSERT INTO pos_transactions
-          (transaction_date, table_number, person, method, amount, items, user_name, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
-            { replacements: [dateGT, 0, 1, metodoParte, montoParte, JSON.stringify(i === 0 ? items : []), 'App iOS'] }
-          )
+        await insertarTransaccion({
+          fecha: dateGT, metodo: metodoParte, monto: montoParte,
+          items: i === 0 ? items : [], usuario: 'App iOS', orderId: order_id,
+        })
       }
     } catch (syncErr) {
       // No romper el pago si falla la sincronización

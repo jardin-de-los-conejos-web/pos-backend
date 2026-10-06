@@ -65,12 +65,14 @@ const Payment = sequelize.define('Payment', {
 }, {
   tableName: 'payments',
   hooks: {
-    beforeCreate: async (payment) => {
+    beforeCreate: async (payment, options) => {
       const today = new Date();
       const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
       const Payment = require('./Payment');
-      const count = await Payment.count() + 1;
-      payment.payment_number = `PAY-${dateStr}-${String(count).padStart(4, '0')}`;
+      // Por el id más alto, no por el conteo: si se borran filas, el conteo repetía números
+      // y el segundo cobro fallaba por número de pago duplicado.
+      const ultimo = (await Payment.max('id', { transaction: options && options.transaction })) || 0;
+      payment.payment_number = `PAY-${dateStr}-${String(ultimo + 1).padStart(4, '0')}`;
     },
   },
 });

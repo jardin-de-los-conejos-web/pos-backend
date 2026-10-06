@@ -18,6 +18,7 @@ const express = require('express')
 const router = express.Router()
 const { sequelize } = require('../config/database')
 const { protect, requireSupervisor } = require('../middleware/auth')
+const { insertarTransaccion, tieneColumnaOrderId } = require('../services/posTransactions')
 const { OrderItem, Payment } = require('../models')
 const recetas = require('../services/recetasAlEnviar')
 
@@ -198,7 +199,19 @@ router.post('/ordenes/:id/eliminar', protect, requireSupervisor, async (req, res
     }
     const metodoPos = { cash: 'efectivo', card: 'tarjeta', transfer: 'transferencia' }
     let esperadas = 0, quitadas = 0
-    for (const p of pagos) {
+
+    // Filas nuevas: cada una guarda su order_id, así que se quitan exactas, sin adivinar.
+    let exactas = []
+    if (await tieneColumnaOrderId()) {
+      ;[exactas] = await sequelize.query(`SELECT id FROM pos_transactions WHERE order_id = ?`, { replacements: [orderId] })
+    }
+    if (exactas.length) {
+      await sequelize.query(`DELETE FROM pos_transactions WHERE order_id = ?`, { replacements: [orderId] })
+      esperadas = quitadas = exactas.length
+    }
+
+    // Filas viejas (de antes de order_id): se buscan por método, monto y hora, como antes.
+    for (const p of (exactas.length ? [] : pagos)) {
       const neto = redondear(num(p.amount_paid) - num(p.change_given))
       const cuando = p.paid_at || p.created_at
       let partes
@@ -326,14 +339,13 @@ router.post('/ordenes/:id/cambiar', protect, requireSupervisor, async (req, res)
           : `Devolución por cambio: ${viejo.product_name} → ${nuevoNombre}`,
         paid_at: new Date(),
       })
-      await sequelize.query(
-        `INSERT INTO pos_transactions (transaction_date, table_number, person, method, amount, items, user_name, created_at)
-         VALUES (?, 0, 1, ?, ?, ?, ?, NOW())`,
-        { replacements: [fecha, metodoApp, diferencia, JSON.stringify([
+      await insertarTransaccion({
+        fecha, metodo: metodoApp, monto: diferencia, usuario: userName, orderId,
+        items: [
           { name: nuevoNombre, category: 'otros', quantity: 1, price: nuevoPrecio },
           { name: viejo.product_name, category: 'otros', quantity: -1, price: precioViejo },
-        ]), userName] }
-      )
+        ],
+      })
     }
 
     require('../services/push').revisarEnSegundoPlano()

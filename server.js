@@ -106,6 +106,7 @@ app.use(errorHandler);
 // ========================
 const start = async () => {
   await connectDB();
+  require('./services/posTransactions').tieneColumnaOrderId(); // agrega pos_transactions.order_id si falta (no bloquea el arranque)
 
   // Sincronizar tabla daily_summaries
   try {
