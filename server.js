@@ -18,6 +18,7 @@ const twoFactorRoutes = require('./routes/2fa');
 const posTransactionsRoutes = require('./routes/pos-transactions');
 const cocinaRoutes = require('./routes/cocina');
 const ticketsRoutes = require('./routes/tickets'); // ← NUEVO
+const diagnosticoRoutes = require('./routes/diagnostico'); // ← solo lectura, solo supervisor
 const ticketsCompartidosRoutes = require('./routes/tickets-compartidos'); // ← tickets visibles en todos los iPads
 const deviceRoutes = require('./routes/devices'); // ← push de stock bajo
 const historialRoutes = require('./routes/historial'); // ← historial de transacciones
@@ -91,6 +92,7 @@ app.use('/api/devices', deviceRoutes); // ← push de stock bajo
 app.use('/api/historial', historialRoutes); // ← historial de transacciones
 app.use('/api/ajustes', ajustesRoutes); // ← cancelar orden / cambiar producto
 app.use('/api/actividad', actividadRoutes); // ← resumen por usuario
+app.use('/api/diagnostico', diagnosticoRoutes);
 app.use('/api/reconstruir-dia', reconstruirRoutes); // ← rehacer un día desde recibos
 
 // ========================
