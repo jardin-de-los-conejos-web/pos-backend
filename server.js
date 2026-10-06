@@ -18,6 +18,7 @@ const twoFactorRoutes = require('./routes/2fa');
 const posTransactionsRoutes = require('./routes/pos-transactions');
 const cocinaRoutes = require('./routes/cocina');
 const ticketsRoutes = require('./routes/tickets'); // ← NUEVO
+const ticketsCompartidosRoutes = require('./routes/tickets-compartidos'); // ← tickets visibles en todos los iPads
 const deviceRoutes = require('./routes/devices'); // ← push de stock bajo
 const historialRoutes = require('./routes/historial'); // ← historial de transacciones
 const ajustesRoutes = require('./routes/ajustes'); // ← cancelar orden / cambiar producto
@@ -85,6 +86,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/daily', dailySummaryRoutes);
 app.use('/api/cocina', cocinaRoutes);
 app.use('/api/tickets', ticketsRoutes); // ← NUEVO
+app.use('/api/tickets-compartidos', ticketsCompartidosRoutes);
 app.use('/api/devices', deviceRoutes); // ← push de stock bajo
 app.use('/api/historial', historialRoutes); // ← historial de transacciones
 app.use('/api/ajustes', ajustesRoutes); // ← cancelar orden / cambiar producto
