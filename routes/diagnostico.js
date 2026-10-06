@@ -103,6 +103,40 @@ const REVISIONES = [
     sql: `SELECT m.id, m.item_id, m.type, m.quantity FROM inventory_movements m
           LEFT JOIN inventory_items i ON i.id = m.item_id WHERE i.id IS NULL LIMIT 50`,
   },
+  {
+    nombre: 'Cobros del cierre ligados a una orden cancelada o que ya no existe',
+    sql: `SELECT t.id, t.order_id, t.method, t.amount, t.transaction_date FROM pos_transactions t
+          LEFT JOIN orders o ON o.id = t.order_id
+          WHERE t.order_id IS NOT NULL AND (o.id IS NULL OR o.status = 'cancelled') LIMIT 50`,
+  },
+  {
+    nombre: 'Órdenes cobradas cuyo cobro en el cierre no coincide con sus pagos',
+    sql: `SELECT o.id, o.order_number, ROUND(p.neto, 2) AS pagos, ROUND(t.cierre, 2) AS en_el_cierre FROM orders o
+          JOIN (SELECT order_id, SUM(amount_paid - COALESCE(change_given, 0)) AS neto FROM payments
+                WHERE status IS NULL OR status NOT IN ('refunded','cancelled') GROUP BY order_id) p ON p.order_id = o.id
+          JOIN (SELECT order_id, SUM(amount) AS cierre FROM pos_transactions WHERE order_id IS NOT NULL GROUP BY order_id) t
+                ON t.order_id = o.id
+          WHERE ABS(p.neto - t.cierre) > 0.01 LIMIT 50`,
+  },
+  // ── Informativas: muestran qué hay abierto, no cuentan como problema ──
+  {
+    info: true,
+    nombre: 'Órdenes abiertas ahora (sin cobrar)',
+    sql: `SELECT id, order_number, customer_name, status, total, created_at FROM orders
+          WHERE status NOT IN ('paid','cancelled') ORDER BY created_at LIMIT 100`,
+  },
+  {
+    info: true,
+    nombre: 'Tickets compartidos abiertos en los iPads',
+    sql: `SELECT tc.client_id, tc.name, tc.user_name, tc.order_id, o.status AS estado_orden, o.total
+          FROM tickets_compartidos tc LEFT JOIN orders o ON o.id = tc.order_id
+          WHERE tc.status = 'open' ORDER BY tc.client_id DESC LIMIT 100`,
+  },
+  {
+    info: true,
+    nombre: 'Tickets del registro viejo que siguen como "open" (esa tabla nunca se cierra sola)',
+    sql: `SELECT id, name, status, total, user_name, created_at FROM tickets WHERE status = 'open' ORDER BY created_at DESC LIMIT 100`,
+  },
 ]
 
 router.get('/consistencia', async (req, res) => {
@@ -110,9 +144,12 @@ router.get('/consistencia', async (req, res) => {
   for (const r of REVISIONES) {
     try {
       const [filas] = await sequelize.query(r.sql)
-      checks.push({ nombre: r.nombre, ok: filas.length === 0, cantidad: filas.length, ejemplos: filas.slice(0, 10), error: null })
+      checks.push({
+        nombre: r.nombre, info: !!r.info, ok: r.info ? true : filas.length === 0,
+        cantidad: filas.length, ejemplos: filas.slice(0, 15), error: null,
+      })
     } catch (e) {
-      checks.push({ nombre: r.nombre, ok: false, cantidad: null, ejemplos: [], error: e.message })
+      checks.push({ nombre: r.nombre, info: !!r.info, ok: false, cantidad: null, ejemplos: [], error: e.message })
     }
   }
   res.json({ success: true, checks })

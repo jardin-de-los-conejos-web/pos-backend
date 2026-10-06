@@ -101,7 +101,10 @@ c, cons = llamar("GET", "/diagnostico/consistencia", token=tk)
 if c == 200 and cons.get("success"):
     print("\n── Revisiones del servidor sobre la base de datos ──")
     for ch in cons["checks"]:
-        if ch["error"]:
+        if ch.get("info"):
+            print(f"INFO ({ch['cantidad']}): {ch['nombre']}" + (f"  → no se pudo leer: {ch['error']}" if ch["error"] else ""))
+            for e in ch["ejemplos"]: print("     ", e)
+        elif ch["error"]:
             raros += 1; print(f"NO SE PUDO REVISAR: {ch['nombre']} → {ch['error']}")
         elif not ch["ok"]:
             raros += 1; print(f"REVISAR ({ch['cantidad']}): {ch['nombre']}")
