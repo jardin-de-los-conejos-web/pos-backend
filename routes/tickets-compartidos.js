@@ -9,8 +9,6 @@
 //    DELETE /api/tickets-compartidos/:clientId  Lo borra; NO deja si tiene dinero por pagar
 //
 //  `clientId` es el id con que el iPad creó el ticket (un número negativo, único).
-//  Los "Para llevar" guardan además sus datos de entrega en `llevar_json`:
-//    { direccion, metodo: 'efectivo' | 'tarjeta' | 'transferencia', pagaCon }  (pagaCon: con cuánto paga en efectivo)
 //  Los productos NO se guardan aquí: salen de la orden del ticket (order_items), que ya es del servidor.
 //  Lo que está solo en el carrito de un iPad (sin enviar) sigue siendo de ese iPad.
 //  Tabla nueva: no toca la tabla `tickets` que ya existe.
@@ -42,21 +40,7 @@ async function asegurarTabla() {
        INDEX idx_status (status)
      )`
   )
-  // Columna nueva para los datos del Para llevar (en tablas creadas antes de que existiera)
-  const [[col]] = await sequelize.query(
-    `SELECT COUNT(*) AS n FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tickets_compartidos' AND COLUMN_NAME = 'llevar_json'`
-  )
-  if (!num(col.n)) await sequelize.query(`ALTER TABLE tickets_compartidos ADD COLUMN llevar_json TEXT NULL`)
   tablaLista = true
-}
-
-/** Datos de entrega del Para llevar, limpios (lo que venga de más se ignora). */
-function datosLlevar(d) {
-  if (!d || typeof d !== 'object') return null
-  const metodo = ['efectivo', 'tarjeta', 'transferencia'].includes(d.metodo) ? d.metodo : null
-  const pagaCon = num(d.pagaCon) > 0 ? r2(num(d.pagaCon)) : null
-  return { direccion: String(d.direccion || '').trim().slice(0, 300), metodo, pagaCon }
 }
 
 /** Productos y total de la orden de un ticket, solo si la orden sigue abierta. */
@@ -93,8 +77,6 @@ router.get('/', async (req, res) => {
       }
       let pagos = []
       try { pagos = JSON.parse(t.pagos_json || '[]') } catch { pagos = [] }
-      let llevar = null
-      try { llevar = datosLlevar(JSON.parse(t.llevar_json || 'null')) } catch { llevar = null }
       tickets.push({
         clientId: Number(t.client_id),
         name: t.name,
@@ -109,7 +91,6 @@ router.get('/', async (req, res) => {
         total: r2(items.reduce((s, i) => s + num(i.subtotal), 0)),
         paidPeople: (t.paid_people || '').split(',').filter(Boolean).map(Number),
         pagos,
-        llevar,
         updatedAt: t.updated_at,
       })
     }
@@ -139,16 +120,14 @@ router.put('/:clientId', async (req, res) => {
       ? JSON.stringify(b.pagos.map(p => ({ method: String(p.method), amount: r2(num(p.amount)) })))
       : null
 
-    const llevar = b.llevar !== undefined ? JSON.stringify(datosLlevar(b.llevar)) : null
-
     if (!existente) {
       const nombre = String(b.name || '').trim()
       if (!nombre) return res.status(400).json({ success: false, message: 'Falta el nombre del ticket' })
       await sequelize.query(
-        `INSERT INTO tickets_compartidos (client_id, name, people_count, user_name, order_id, paid_people, pagos_json, llevar_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tickets_compartidos (client_id, name, people_count, user_name, order_id, paid_people, pagos_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
         { replacements: [clientId, nombre.slice(0, 200), Math.max(1, num(b.peopleCount) || 1), b.userName || null,
-          b.orderId || null, paid, pagos, llevar] }
+          b.orderId || null, paid, pagos] }
       )
       return res.json({ success: true, created: true })
     }
@@ -161,7 +140,6 @@ router.put('/:clientId', async (req, res) => {
     else if (b.orderId) poner('order_id', Number(b.orderId))
     if (paid !== null) poner('paid_people', paid)
     if (pagos !== null) poner('pagos_json', pagos)
-    if (llevar !== null) poner('llevar_json', llevar)
     if (sets.length) {
       await sequelize.query(`UPDATE tickets_compartidos SET ${sets.join(', ')} WHERE client_id = ?`,
         { replacements: [...vals, clientId] })
