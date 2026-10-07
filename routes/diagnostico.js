@@ -81,10 +81,36 @@ const REVISIONES = [
           ORDER BY o.created_at LIMIT 50`,
   },
   {
-    nombre: 'Recetas que descuentan pajillas o tapaderas (la app ya las descuenta: salen dobles)',
-    sql: `SELECT r.id, r.product_name, i.name AS descuenta FROM product_recipes r
+    // La app ya descuenta por su cuenta: pajillas, tapaderas, platos de crepa, cubiertos, servilletas y
+    // bolsas (de cualquier producto); el insumo del café; las frutas de licuados, smoothies, crepas y
+    // bowls; y hamburguesa, combo, Lays y latas. Una receta para lo mismo lo resta dos veces.
+    nombre: 'Recetas que repiten lo que ya descuenta la app (salen dobles)',
+    sql: `SELECT r.id, r.product_name AS al_vender, i.name AS descuenta, r.quantity_used AS resta FROM product_recipes r
           JOIN inventory_items i ON i.id = r.inventory_item_id
-          WHERE r.is_active = 1 AND (i.name LIKE '%pajill%' OR i.name LIKE '%tapadera%') LIMIT 50`,
+          WHERE r.is_active = 1 AND (
+                i.name LIKE '%pajill%' OR i.name LIKE '%tapadera%' OR i.name LIKE '%plato%crepa%'
+             OR i.name LIKE '%cuchar%' OR i.name LIKE '%tenedor%' OR i.name LIKE '%cuchill%'
+             OR i.name LIKE '%servillet%' OR i.name LIKE 'bolsa%'
+             OR r.product_name LIKE 'cafe%' OR r.product_name LIKE 'cappuccino%' OR r.product_name LIKE 'capuccino%'
+             OR r.product_name LIKE 'hamburguesa%' OR r.product_name LIKE 'combo hamburguesa%'
+             OR r.product_name = 'lays' OR r.product_name LIKE 'lata %'
+             OR ((r.product_name LIKE 'licuado%' OR r.product_name LIKE 'smoothie%' OR r.product_name LIKE 'crepa%'
+                  OR r.product_name LIKE '%bowl%' OR r.product_name LIKE 'nutellada%')
+                 AND i.name IN ('banano','bananos','fresa','fresas','papaya','melon','piña','pina','mango','durazno','sandia')))
+          ORDER BY r.product_name LIMIT 50`,
+  },
+  {
+    // Las recetas automáticas de bebidas buscaban por una sola palabra: "Té frío Limón" → "limón",
+    // "Gaseosa Naranja" → "naranja". Si en Inventario esa palabra es una fruta, cada bebida resta fruta.
+    nombre: 'Recetas de bebidas que descuentan una fruta',
+    sql: `SELECT r.id, r.product_name AS al_vender, i.name AS descuenta, i.category FROM product_recipes r
+          JOIN inventory_items i ON i.id = r.inventory_item_id
+          WHERE r.is_active = 1
+            AND (r.product_name LIKE 'gaseosa%' OR r.product_name LIKE 'te frio%' OR r.product_name LIKE 'be light%'
+                 OR r.product_name LIKE 'fresco%' OR r.product_name LIKE 'lata%')
+            AND (i.category LIKE '%fruta%' OR i.name IN ('banano','fresa','papaya','melon','piña','pina','mango','durazno',
+                 'sandia','limon','limones','naranja','naranjas','uva','uvas','manzana','manzanas','jamaica','flor de jamaica'))
+          LIMIT 50`,
   },
   {
     // En Gastos, "Es de inventario → Ingreso (compra)" guarda el gasto y luego suma al inventario con el
@@ -140,6 +166,22 @@ const REVISIONES = [
           WHERE ABS(p.neto - t.cierre) > 0.01 LIMIT 50`,
   },
   // ── Informativas: muestran qué hay abierto, no cuentan como problema ──
+  {
+    info: true,
+    nombre: 'Todas las recetas: qué resta cada producto al venderse',
+    sql: `SELECT r.product_name AS al_vender, i.name AS descuenta, r.quantity_used AS resta, r.unit AS unidad_receta,
+                 i.unit AS unidad_inventario, i.category
+          FROM product_recipes r JOIN inventory_items i ON i.id = r.inventory_item_id
+          WHERE r.is_active = 1 ORDER BY r.product_name, i.name LIMIT 200`,
+  },
+  {
+    info: true,
+    nombre: 'Productos del menú sin receta que se descuentan por llamarse igual que uno del inventario',
+    sql: `SELECT p.name AS producto, i.name AS inventario, i.quantity, i.unit FROM products p
+          JOIN inventory_items i ON LOWER(i.name) = LOWER(p.name) AND i.is_active = 1
+          WHERE NOT EXISTS (SELECT 1 FROM product_recipes r WHERE r.is_active = 1 AND LOWER(r.product_name) = LOWER(p.name))
+          ORDER BY p.name LIMIT 100`,
+  },
   {
     info: true,
     nombre: 'Inventario en cero (para comprar) y sus últimos movimientos',
@@ -211,7 +253,7 @@ router.get('/consistencia', async (req, res) => {
       const [filas] = await sequelize.query(r.sql)
       checks.push({
         nombre: r.nombre, info: !!r.info, ok: r.info ? true : filas.length === 0,
-        cantidad: filas.length, ejemplos: filas.slice(0, 15), error: null,
+        cantidad: filas.length, ejemplos: filas.slice(0, r.info ? 200 : 15), error: null,
       })
     } catch (e) {
       checks.push({ nombre: r.nombre, info: !!r.info, ok: false, cantidad: null, ejemplos: [], error: e.message })
