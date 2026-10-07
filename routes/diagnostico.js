@@ -87,6 +87,18 @@ const REVISIONES = [
           WHERE r.is_active = 1 AND (i.name LIKE '%pajill%' OR i.name LIKE '%tapadera%') LIMIT 50`,
   },
   {
+    // En Gastos, "Es de inventario → Ingreso (compra)" guarda el gasto y luego suma al inventario con el
+    // motivo "Gasto: <descripción> · Q<monto>". Aquí salen las compras que no tienen esa entrada.
+    nombre: 'Compras de Gastos que no se sumaron al inventario (últimos 30 días)',
+    sql: `SELECT e.id, e.expense_date, e.description, e.amount FROM pos_expenses e
+          WHERE e.expense_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+            AND REPLACE(e.description, '[DIA] ', '') LIKE '%Compra: %'
+            AND NOT EXISTS (SELECT 1 FROM inventory_movements m
+                            WHERE m.type = 'entrada'
+                              AND m.reason LIKE CONCAT('Gasto: ', REPLACE(e.description, '[DIA] ', ''), '%'))
+          ORDER BY e.expense_date DESC LIMIT 50`,
+  },
+  {
     nombre: 'Números de orden repetidos',
     sql: `SELECT order_number, COUNT(*) AS veces FROM orders GROUP BY order_number HAVING COUNT(*) > 1 LIMIT 50`,
   },
