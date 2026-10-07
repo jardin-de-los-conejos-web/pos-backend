@@ -66,20 +66,29 @@ const REVISIONES = [
                   AND COALESCE(paid_at, created_at) >= DATE_SUB(NOW(), INTERVAL 31 DAY) GROUP BY dia) d
           LEFT JOIN (SELECT transaction_date AS dia, SUM(amount) AS cierre FROM pos_transactions GROUP BY transaction_date) t
                  ON t.dia = d.dia
-          WHERE ABS(d.cobros - COALESCE(t.cierre, 0)) > 0.01 ORDER BY d.dia DESC LIMIT 50`,
+          WHERE ABS(d.cobros - COALESCE(t.cierre, 0)) > 0.01
+            -- Diferencia aceptada: el 5/10 el cierre se dejó con lo que marcó la terminal (Q25 más en tarjeta)
+            AND NOT (d.dia = '2026-10-05' AND ABS(COALESCE(t.cierre, 0) - d.cobros - 25) < 0.01)
+          ORDER BY d.dia DESC LIMIT 50`,
   },
   {
-    nombre: 'Órdenes sin cobrar desde hace más de 6 horas',
-    sql: `SELECT id, order_number, status, total, created_at FROM orders
-          WHERE status NOT IN ('paid','cancelled') AND created_at < DATE_SUB(NOW(), INTERVAL 6 HOUR) ORDER BY created_at LIMIT 50`,
+    // Las de tickets abiertos no cuentan: un ticket es una cuenta que se queda abierta a propósito
+    // (cenas y almuerzos de empleados, clientes que pagan después). Esas salen abajo como información.
+    nombre: 'Órdenes de mesa o Para llevar sin cobrar desde hace más de 6 horas',
+    sql: `SELECT o.id, o.order_number, o.customer_name, o.status, o.total, o.created_at FROM orders o
+          WHERE o.status NOT IN ('paid','cancelled') AND o.created_at < DATE_SUB(NOW(), INTERVAL 6 HOUR)
+            AND NOT EXISTS (SELECT 1 FROM tickets_compartidos tc WHERE tc.order_id = o.id AND tc.status = 'open')
+          ORDER BY o.created_at LIMIT 50`,
+  },
+  {
+    nombre: 'Recetas que descuentan pajillas o tapaderas (la app ya las descuenta: salen dobles)',
+    sql: `SELECT r.id, r.product_name, i.name AS descuenta FROM product_recipes r
+          JOIN inventory_items i ON i.id = r.inventory_item_id
+          WHERE r.is_active = 1 AND (i.name LIKE '%pajill%' OR i.name LIKE '%tapadera%') LIMIT 50`,
   },
   {
     nombre: 'Números de orden repetidos',
     sql: `SELECT order_number, COUNT(*) AS veces FROM orders GROUP BY order_number HAVING COUNT(*) > 1 LIMIT 50`,
-  },
-  {
-    nombre: 'Productos de inventario con cantidad en cero o negativa',
-    sql: `SELECT id, name, quantity, unit FROM inventory_items WHERE is_active = 1 AND quantity <= 0 ORDER BY name LIMIT 100`,
   },
   {
     nombre: 'Recetas que apuntan a un producto de inventario que no existe o está apagado',
@@ -119,6 +128,19 @@ const REVISIONES = [
           WHERE ABS(p.neto - t.cierre) > 0.01 LIMIT 50`,
   },
   // ── Informativas: muestran qué hay abierto, no cuentan como problema ──
+  {
+    info: true,
+    nombre: 'Inventario en cero (para comprar)',
+    sql: `SELECT id, name, quantity, unit FROM inventory_items WHERE is_active = 1 AND quantity <= 0 ORDER BY name LIMIT 100`,
+  },
+  {
+    info: true,
+    nombre: 'Cuentas de tickets abiertas desde hace más de 6 horas',
+    sql: `SELECT o.id, tc.name AS ticket, o.total, o.created_at FROM orders o
+          JOIN tickets_compartidos tc ON tc.order_id = o.id AND tc.status = 'open'
+          WHERE o.status NOT IN ('paid','cancelled') AND o.created_at < DATE_SUB(NOW(), INTERVAL 6 HOUR)
+          ORDER BY o.created_at LIMIT 50`,
+  },
   {
     info: true,
     nombre: 'Órdenes abiertas ahora (sin cobrar)',

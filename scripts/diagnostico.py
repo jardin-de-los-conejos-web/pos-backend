@@ -84,13 +84,8 @@ for o in hi.get("data", []):
         raros += 1; print(f"Cobro distinto al total: {o['order_number']} {o['mesa']} total {o['total']} cobrado {o['cobrado']}")
     suma = sum(float(i.get("subtotal") or 0) for i in o["items"])
     if abs(suma - o["total"]) > 0.01: raros += 1; print(f"Productos no suman el total: {o['order_number']} productos {suma:.2f} total {o['total']}")
-ahora = datetime.datetime.now(datetime.timezone.utc)
-for o in hi.get("data", []):
-    if o["status"] not in ("paid", "cancelled"):
-        edad = (ahora - datetime.datetime.fromisoformat(o["created_at"].replace("Z", "+00:00"))).total_seconds() / 3600
-        if edad > 6: raros += 1; print(f"Orden sin cobrar desde hace {edad:.0f} h: {o['order_number']} {o['mesa']} Q{o['total']}")
-for i in items:
-    if float(i["quantity"]) <= 0: raros += 1; print(f"Inventario en cero: {i['name']} ({i['quantity']} {i['unit']})")
+# Las órdenes sin cobrar de hace horas las revisa el servidor (abajo), sin contar las de tickets abiertos.
+# El inventario en cero no es una falla del sistema: sale abajo como información ("para comprar").
 ids = {i["id"] for i in items}
 for r_ in rec.get("data", []):
     iid = r_.get("inventory_item_id")
