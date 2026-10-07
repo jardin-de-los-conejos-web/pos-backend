@@ -130,8 +130,12 @@ const REVISIONES = [
   // ── Informativas: muestran qué hay abierto, no cuentan como problema ──
   {
     info: true,
-    nombre: 'Inventario en cero (para comprar)',
-    sql: `SELECT id, name, quantity, unit FROM inventory_items WHERE is_active = 1 AND quantity <= 0 ORDER BY name LIMIT 100`,
+    nombre: 'Inventario en cero (para comprar) y sus últimos movimientos',
+    sql: `SELECT i.id, i.name, i.quantity, i.unit,
+                 (SELECT SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(m.type, ' ', m.quantity, ' · ', COALESCE(m.reason, ''), ' · ',
+                         COALESCE(m.user_name, ''), ' · ', m.created_at) ORDER BY m.id DESC SEPARATOR ' | '), ' | ', 6)
+                  FROM inventory_movements m WHERE m.item_id = i.id) AS ultimos
+          FROM inventory_items i WHERE i.is_active = 1 AND i.quantity <= 0 ORDER BY i.name LIMIT 100`,
   },
   {
     info: true,
