@@ -139,6 +139,13 @@ const REVISIONES = [
   },
   {
     info: true,
+    nombre: 'Recetas que descuentan los productos que están en cero (cuánto resta cada venta)',
+    sql: `SELECT i.name AS producto, r.product_name AS al_vender, r.quantity_used AS resta, r.unit AS unidad_receta, i.unit AS unidad_inventario
+          FROM product_recipes r JOIN inventory_items i ON i.id = r.inventory_item_id
+          WHERE r.is_active = 1 AND i.is_active = 1 AND i.quantity <= 0 ORDER BY i.name, r.product_name LIMIT 100`,
+  },
+  {
+    info: true,
     nombre: 'Cuentas de tickets abiertas desde hace más de 6 horas',
     sql: `SELECT o.id, tc.name AS ticket, o.total, o.created_at FROM orders o
           JOIN tickets_compartidos tc ON tc.order_id = o.id AND tc.status = 'open'
