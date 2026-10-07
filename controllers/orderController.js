@@ -55,7 +55,13 @@ const getOrders = async (req, res) => {
   try {
     const { status, date, type } = req.query;
     const where = {};
-    if (status) where.status = status;
+    // La app pide varios estados juntos: ?status=open,in_progress,ready,delivered.
+    // Antes se buscaba ese texto completo como un solo estado y nunca regresaba nada,
+    // por eso los demás iPads no veían las mesas con orden abierta.
+    if (status) {
+      const estados = String(status).split(',').map(s => s.trim()).filter(Boolean);
+      where.status = estados.length > 1 ? { [require('sequelize').Op.in]: estados } : estados[0];
+    }
     if (type) where.type = type;
     if (date) {
       const { Op } = require('sequelize');

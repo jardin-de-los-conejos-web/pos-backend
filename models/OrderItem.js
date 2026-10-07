@@ -11,9 +11,13 @@ const OrderItem = sequelize.define('OrderItem', {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
+  // Puede ir vacío: los productos personalizados de la app (Envío, porciones, licuados con
+  // notas...) no tienen producto en el menú. La columna en la base de datos ya acepta NULL;
+  // el modelo no, y por eso "Agregar items" a una orden abierta fallaba con
+  // "OrderItem.product_id cannot be null" (al crear la orden no fallaba porque bulkCreate no valida).
   product_id: {
     type: DataTypes.INTEGER,
-    allowNull: false,
+    allowNull: true,
   },
   product_name: {
     type: DataTypes.STRING(150), // snapshot del nombre al momento de la orden
