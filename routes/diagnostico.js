@@ -91,7 +91,8 @@ const REVISIONES = [
                 i.name LIKE '%pajill%' OR i.name LIKE '%tapadera%' OR i.name LIKE '%plato%crepa%'
              OR i.name LIKE '%cuchar%' OR i.name LIKE '%tenedor%' OR i.name LIKE '%cuchill%'
              OR i.name LIKE '%servillet%' OR i.name LIKE 'bolsa%'
-             OR r.product_name LIKE 'cafe%' OR r.product_name LIKE 'cappuccino%' OR r.product_name LIKE 'capuccino%'
+             OR ((r.product_name LIKE 'cafe%' OR r.product_name LIKE 'cappuccino%' OR r.product_name LIKE 'capuccino%')
+                 AND i.name NOT LIKE '%tapa%' AND i.name NOT LIKE '%vaso%')
              OR r.product_name LIKE 'hamburguesa%' OR r.product_name LIKE 'combo hamburguesa%'
              OR r.product_name = 'lays' OR r.product_name LIKE 'lata %'
              OR ((r.product_name LIKE 'licuado%' OR r.product_name LIKE 'smoothie%' OR r.product_name LIKE 'crepa%'
@@ -102,14 +103,13 @@ const REVISIONES = [
   {
     // Las recetas automáticas de bebidas buscaban por una sola palabra: "Té frío Limón" → "limón",
     // "Gaseosa Naranja" → "naranja". Si en Inventario esa palabra es una fruta, cada bebida resta fruta.
-    nombre: 'Recetas de bebidas que descuentan una fruta',
+    nombre: 'Recetas de bebidas que descuentan una fruta o un alimento',
     sql: `SELECT r.id, r.product_name AS al_vender, i.name AS descuenta, i.category FROM product_recipes r
           JOIN inventory_items i ON i.id = r.inventory_item_id
           WHERE r.is_active = 1
             AND (r.product_name LIKE 'gaseosa%' OR r.product_name LIKE 'te frio%' OR r.product_name LIKE 'be light%'
                  OR r.product_name LIKE 'fresco%' OR r.product_name LIKE 'lata%')
-            AND (i.category LIKE '%fruta%' OR i.name IN ('banano','fresa','papaya','melon','piña','pina','mango','durazno',
-                 'sandia','limon','limones','naranja','naranjas','uva','uvas','manzana','manzanas','jamaica','flor de jamaica'))
+            AND i.category NOT LIKE '%bebida%' AND i.category NOT LIKE '%empaque%' 
           LIMIT 50`,
   },
   {
@@ -173,6 +173,13 @@ const REVISIONES = [
                  i.unit AS unidad_inventario, i.category
           FROM product_recipes r JOIN inventory_items i ON i.id = r.inventory_item_id
           WHERE r.is_active = 1 ORDER BY r.product_name, i.name LIMIT 200`,
+  },
+  {
+    info: true,
+    nombre: 'Inventario con "café" en el nombre (la app descuenta el café del que se llame exactamente "Café")',
+    sql: `SELECT id, name, quantity, unit, category FROM inventory_items
+          WHERE is_active = 1 AND (name LIKE '%cafe%' OR name LIKE '%capp%' OR name LIKE '%capu%' OR name LIKE '%moca%' OR name LIKE '%frap%')
+          ORDER BY name LIMIT 50`,
   },
   {
     info: true,
