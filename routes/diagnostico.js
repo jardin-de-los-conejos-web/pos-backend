@@ -122,8 +122,28 @@ const REVISIONES = [
   {
     info: true,
     nombre: 'Órdenes abiertas ahora (sin cobrar)',
-    sql: `SELECT id, order_number, customer_name, status, total, created_at FROM orders
-          WHERE status NOT IN ('paid','cancelled') ORDER BY created_at LIMIT 100`,
+    sql: `SELECT o.id, o.order_number, o.type, o.table_id, t.number AS mesa, o.customer_name, o.status, o.total, o.created_at
+          FROM orders o LEFT JOIN tables t ON t.id = o.table_id
+          WHERE o.status NOT IN ('paid','cancelled') ORDER BY o.created_at LIMIT 100`,
+  },
+  {
+    info: true,
+    nombre: 'Mesas: estado y su orden abierta (lo que ven los iPads)',
+    sql: `SELECT t.id, t.number AS mesa, t.status AS estado_mesa,
+                 (SELECT o.id FROM orders o WHERE o.table_id = t.id AND o.status NOT IN ('paid','cancelled')
+                  ORDER BY o.id DESC LIMIT 1) AS orden_abierta,
+                 (SELECT o.total FROM orders o WHERE o.table_id = t.id AND o.status NOT IN ('paid','cancelled')
+                  ORDER BY o.id DESC LIMIT 1) AS total
+          FROM tables t WHERE t.is_active = 1 ORDER BY t.id LIMIT 50`,
+  },
+  {
+    info: true,
+    nombre: 'Pajillas en Inventario y sus últimos movimientos',
+    sql: `SELECT i.id, i.name, i.unit, i.quantity, i.is_active,
+                 (SELECT SUBSTRING_INDEX(GROUP_CONCAT(CONCAT(m.type, ' ', m.quantity, ' · ', COALESCE(m.reason, ''), ' · ', m.created_at)
+                         ORDER BY m.id DESC SEPARATOR ' | '), ' | ', 5)
+                  FROM inventory_movements m WHERE m.item_id = i.id) AS ultimos
+          FROM inventory_items i WHERE i.name LIKE '%pajill%' OR i.name LIKE '%popote%' LIMIT 20`,
   },
   {
     info: true,
