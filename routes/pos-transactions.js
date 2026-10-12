@@ -2,6 +2,7 @@ const express = require('express')
 const router = express.Router()
 const { sequelize } = require('../config/database')
 const { protect, requireSupervisor } = require('../middleware/auth')
+const { validateDate, saveDailySummary } = require('../services/dailySummaries')
 
 function todayGT() {
   const now = new Date()
@@ -276,7 +277,8 @@ router.post('/cierre', protect, async (req, res) => {
       efectivoTeorico, efectivoReal, descuadre, ventasBrutas, ventasNetas,
       efectivo, tarjeta, transferencia, gananciaNeta, userName,
     } = req.body
-    const cierreDate = date || todayGT()
+    const cierreDate = validateDate(date ?? todayGT())
+    await sequelize.transaction(async transaction => {
     await sequelize.query(
       `INSERT INTO pos_cierres
         (cierre_date, fondo_inicial, cobros_efectivo, reembolsos_efectivo, gastos_dia,
@@ -295,13 +297,15 @@ router.post('/cierre', protect, async (req, res) => {
           cierreDate, fondoInicial||0, cobrosEfectivo||0, reembolsosEfectivo||0, gastosDia||0,
           efectivoTeorico||0, efectivoReal||0, descuadre||0, ventasBrutas||0, ventasNetas||0,
           efectivo||0, tarjeta||0, transferencia||0, gananciaNeta||0, userName||''
-        ]
+        ], transaction
       }
     )
+    await saveDailySummary(cierreDate, transaction)
+    })
     res.json({ success: true, message: 'Cierre guardado' })
   } catch (err) {
     console.error('pos-transactions POST cierre error:', err)
-    res.status(500).json({ success: false, message: err.message })
+    res.status(err.status || 500).json({ success: false, message: err.message })
   }
 })
 
