@@ -67,6 +67,8 @@ app.get('/api/health', (req, res) => {
     success: true,
     message: '🍽️ Restaurant POS API is running',
     version: '1.0.0',
+    // Qué commit está corriendo en Railway (para comprobar que un cambio ya se subió)
+    commit: (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || null,
     timestamp: new Date().toISOString(),
   });
 });
