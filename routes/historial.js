@@ -12,7 +12,7 @@
 const express = require('express')
 const router = express.Router()
 const { sequelize } = require('../config/database')
-const { requireSupervisor } = require('../middleware/auth')
+const { protect } = require('../middleware/auth')
 
 function todayGT() {
   return new Intl.DateTimeFormat('en-CA', {
@@ -22,7 +22,8 @@ function todayGT() {
 
 const num = v => Number(v || 0)
 
-router.get('/', requireSupervisor, async (req, res) => {
+// Lo ven supervisores y empleados (los empleados lo usan para volver a imprimir cocina y comanda).
+router.get('/', protect, async (req, res) => {
   try {
     const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : todayGT()
 
