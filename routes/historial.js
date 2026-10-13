@@ -50,7 +50,7 @@ router.get('/', protect, async (req, res) => {
     if (ids.length) {
       ;[items] = await sequelize.query(
         `SELECT oi.id AS item_id, oi.order_id, COALESCE(oi.product_name, p.name, 'Producto') AS name,
-                oi.quantity, oi.unit_price, oi.subtotal, oi.notes
+                oi.quantity, oi.unit_price, oi.subtotal, oi.notes, oi.created_at
          FROM order_items oi
          LEFT JOIN products p ON p.id = oi.product_id
          WHERE oi.order_id IN (?)
@@ -121,6 +121,7 @@ router.get('/', protect, async (req, res) => {
           unit_price: num(i.unit_price),
           subtotal: num(i.subtotal),
           notes: i.notes || null,
+          created_at: i.created_at,
         })),
       }
     })

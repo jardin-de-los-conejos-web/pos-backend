@@ -50,7 +50,7 @@ async function productosDeOrden(orderId) {
   )
   if (!orden || ['paid', 'cancelled'].includes(orden.status)) return null
   const [items] = await sequelize.query(
-    `SELECT id, product_id, product_name, quantity, unit_price, subtotal, notes
+    `SELECT id, product_id, product_name, quantity, unit_price, subtotal, notes, created_at
      FROM order_items WHERE order_id = ? AND (status IS NULL OR status <> 'cancelled') ORDER BY id`,
     { replacements: [orderId] }
   )
@@ -86,7 +86,7 @@ router.get('/', async (req, res) => {
         orderAbierta,
         items: items.map(i => ({
           id: i.id, productId: i.product_id, name: i.product_name,
-          quantity: num(i.quantity), unitPrice: num(i.unit_price), subtotal: num(i.subtotal), notes: i.notes,
+          quantity: num(i.quantity), unitPrice: num(i.unit_price), subtotal: num(i.subtotal), notes: i.notes, createdAt: i.created_at,
         })),
         total: r2(items.reduce((s, i) => s + num(i.subtotal), 0)),
         paidPeople: (t.paid_people || '').split(',').filter(Boolean).map(Number),
