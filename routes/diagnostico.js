@@ -93,7 +93,7 @@ const REVISIONES = [
              OR i.name LIKE '%servillet%' OR i.name LIKE 'bolsa%'
              OR ((r.product_name LIKE 'cafe%' OR r.product_name LIKE 'cappuccino%' OR r.product_name LIKE 'capuccino%')
                  AND i.name NOT LIKE '%tapa%' AND i.name NOT LIKE '%vaso%')
-             OR r.product_name LIKE 'hamburguesa%' OR r.product_name LIKE 'combo hamburguesa%'
+             -- Hamburguesa y combo: el pan, la carne y el queso los descuenta su receta; la app solo los extras
              OR r.product_name = 'lays' OR r.product_name LIKE 'lata %'
              OR ((r.product_name LIKE 'licuado%' OR r.product_name LIKE 'smoothie%' OR r.product_name LIKE 'crepa%'
                   OR r.product_name LIKE '%bowl%' OR r.product_name LIKE 'nutellada%')
@@ -166,6 +166,21 @@ const REVISIONES = [
           WHERE ABS(p.neto - t.cierre) > 0.01 LIMIT 50`,
   },
   // ── Informativas: muestran qué hay abierto, no cuentan como problema ──
+  {
+    info: true,
+    // El cierre cuenta por el DÍA DEL COBRO; el historial por el día en que se ABRIÓ la orden.
+    // Aquí sale cada cobro de hoy con el día en que se abrió su orden, para ver de dónde sale una diferencia.
+    nombre: 'Cobros de hoy en el cierre (con el día en que se abrió cada orden)',
+    sql: `SELECT t.order_id, o.order_number, COALESCE(o.customer_name, CONCAT('Mesa ', t.table_number)) AS cuenta,
+                 DATE_FORMAT(DATE_SUB(o.created_at, INTERVAL 6 HOUR), '%Y-%m-%d %H:%i') AS orden_abierta,
+                 o.status, o.total AS total_orden,
+                 ROUND(SUM(t.amount), 2) AS en_cierre, GROUP_CONCAT(DISTINCT t.method) AS metodos,
+                 DATE_FORMAT(DATE_SUB(MIN(t.created_at), INTERVAL 6 HOUR), '%H:%i') AS hora_cobro
+          FROM pos_transactions t LEFT JOIN orders o ON o.id = t.order_id
+          WHERE t.transaction_date = DATE(DATE_SUB(UTC_TIMESTAMP(), INTERVAL 6 HOUR))
+          GROUP BY t.order_id, o.order_number, o.customer_name, t.table_number, o.created_at, o.status, o.total
+          ORDER BY MIN(t.created_at) LIMIT 100`,
+  },
   {
     info: true,
     nombre: 'Todas las recetas: qué resta cada producto al venderse',
