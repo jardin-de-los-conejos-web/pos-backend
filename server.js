@@ -13,6 +13,7 @@ const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const inventoryRoutes = require('./routes/inventory');
 const inventoryUsageRoutes = require('./routes/inventory-usage');
+const recetasPreparacionRoutes = require('./routes/recetas-preparacion'); // ← recetas de preparación (Anotaciones)
 const tableRoutes = require('./routes/tables');
 const dailySummaryRoutes = require('./routes/dailySummary');
 const twoFactorRoutes = require('./routes/2fa');
@@ -88,6 +89,7 @@ app.use('/api/payments', paymentRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/inventory-usage', inventoryUsageRoutes);
+app.use('/api/recetas-preparacion', recetasPreparacionRoutes);
 app.use('/api/daily', dailySummaryRoutes);
 app.use('/api/cocina', cocinaRoutes);
 app.use('/api/tickets', ticketsRoutes); // ← NUEVO
