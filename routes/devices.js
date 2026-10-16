@@ -2,7 +2,7 @@
 const express = require('express')
 const router = express.Router()
 const push = require('../services/push')
-const { requireSupervisor } = require('../middleware/auth')
+const { protect, requireSupervisor } = require('../middleware/auth')
 
 // POST /api/devices/register  { token, environment: 'production'|'sandbox', user_name }
 router.post('/register', async (req, res) => {
@@ -13,6 +13,21 @@ router.post('/register', async (req, res) => {
     }
     await push.registrarDispositivo({ token, environment, userName: user_name })
     res.json({ success: true, push_configured: push.configurado() })
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message })
+  }
+})
+
+// POST /api/devices/vincular  { token }  → con la sesión abierta: anota quién usa este iPad
+// (así los avisos para supervisores, como "consumo anotado", solo les llegan a ellos)
+router.post('/vincular', protect, async (req, res) => {
+  try {
+    const { token } = req.body
+    if (!token || !/^[0-9a-fA-F]{32,200}$/.test(token)) {
+      return res.status(400).json({ success: false, message: 'Token inválido' })
+    }
+    await push.vincularDispositivo({ token, userName: req.user.name, userRole: req.user.role })
+    res.json({ success: true })
   } catch (e) {
     res.status(500).json({ success: false, message: e.message })
   }

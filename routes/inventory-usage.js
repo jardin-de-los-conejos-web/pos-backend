@@ -55,13 +55,20 @@ router.post('/', protect, async (req, res) => {
     const [[item]] = await sequelize.query('SELECT * FROM inventory_items WHERE id = ? AND is_active = 1', { replacements:[inventoryItemId] })
     if (!item) throw error('El producto ya no está activo')
     const amount = convertedQuantity(quantity,unit,item.unit)
-    await sequelize.query(`INSERT IGNORE INTO inventory_usage_notes
+    const [, nuevas] = await sequelize.query(`INSERT IGNORE INTO inventory_usage_notes
       (request_id,usage_date,inventory_item_id,item_name,input_quantity,input_unit,inventory_quantity,inventory_unit,notes,user_id,user_name)
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`, { replacements:[requestId,date,inventoryItemId,item.name,Number(quantity),canonical(unit),amount,item.unit,detail || null,req.user.id,req.user.name || 'Empleado'] })
     const [[row]] = await sequelize.query("SELECT *, DATE_FORMAT(usage_date, '%Y-%m-%d') AS usage_date FROM inventory_usage_notes WHERE request_id = ?", { replacements:[requestId] })
     if (row.user_id !== req.user.id || Number(row.inventory_item_id) !== Number(inventoryItemId)
         || String(row.usage_date).slice(0,10) !== date || Math.abs(Number(row.input_quantity) - Number(quantity)) > 0.00001
         || canonical(row.input_unit) !== canonical(unit) || (row.notes || '') !== detail) throw error('Este identificador ya pertenece a otra anotación',409)
+    // Aviso al supervisor para que lo revise (solo la primera vez: un reintento no vuelve a avisar;
+    // si lo anotó un supervisor no hace falta avisarle)
+    if (nuevas && req.user.role !== 'supervisor') {
+      push.enviarASupervisores('📝 Consumo anotado',
+        `${row.user_name} anotó ${Number(row.input_quantity)} ${row.input_unit} de ${row.item_name}. Revísalo en Anotaciones.`
+      ).catch(e => console.error('⚠️ Aviso de consumo anotado:', e.message))
+    }
     res.json({ success:true, data:present(row) })
   } catch (err) { replyError(res,err) }
 })

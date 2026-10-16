@@ -62,6 +62,12 @@ async function asegurarTablas() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )`)
+  // Quién inició sesión en ese iPad (para mandar avisos solo a supervisores). Tablas viejas no la tienen.
+  const [[col]] = await sequelize.query(
+    `SELECT COUNT(*) AS n FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'device_tokens' AND COLUMN_NAME = 'user_role'`
+  )
+  if (!Number(col.n)) await sequelize.query(`ALTER TABLE device_tokens ADD COLUMN user_role VARCHAR(20) NULL`)
   await sequelize.query(`
     CREATE TABLE IF NOT EXISTS low_stock_alerts (
       item_id INT PRIMARY KEY,
@@ -81,6 +87,15 @@ async function registrarDispositivo({ token, environment, userName }) {
                              user_name = COALESCE(VALUES(user_name), user_name),
                              is_active = 1`,
     { replacements: [token, env, userName || null] }
+  )
+}
+
+/** El iPad avisa quién inició sesión ahí (se llama con la sesión ya abierta). */
+async function vincularDispositivo({ token, userName, userRole }) {
+  await asegurarTablas()
+  await sequelize.query(
+    `UPDATE device_tokens SET user_name = ?, user_role = ?, is_active = 1 WHERE token = ?`,
+    { replacements: [userName || null, userRole || null, token] }
   )
 }
 
@@ -109,6 +124,15 @@ function enviarUno(cliente, token, payload) {
 
 // ── Mandar a todos los iPads ────────────────────────────────────────────────
 async function enviarATodos(titulo, mensaje) {
+  return enviar(titulo, mensaje, false)
+}
+
+/** Solo a los iPads donde la última sesión fue de un supervisor (ej. consumo anotado por revisar). */
+async function enviarASupervisores(titulo, mensaje) {
+  return enviar(titulo, mensaje, true)
+}
+
+async function enviar(titulo, mensaje, soloSupervisores) {
   if (!configurado()) {
     console.log('ℹ️ Push sin configurar (faltan APNS_KEY / APNS_KEY_ID / APNS_TEAM_ID)')
     return { enviados: 0, fallidos: 0 }
@@ -116,8 +140,12 @@ async function enviarATodos(titulo, mensaje) {
   await asegurarTablas()
   const [dispositivos] = await sequelize.query(
     `SELECT token, environment FROM device_tokens WHERE is_active = 1`
+      + (soloSupervisores ? ` AND user_role = 'supervisor'` : '')
   )
-  if (dispositivos.length === 0) return { enviados: 0, fallidos: 0 }
+  if (dispositivos.length === 0) {
+    if (soloSupervisores) console.log('ℹ️ Ningún iPad con sesión de supervisor para avisar')
+    return { enviados: 0, fallidos: 0 }
+  }
 
   const payload = { aps: { alert: { title: titulo, body: mensaje }, sound: 'default' } }
   let enviados = 0
@@ -217,7 +245,9 @@ function iniciarRevisionPeriodica() {
 module.exports = {
   configurado,
   registrarDispositivo,
+  vincularDispositivo,
   enviarATodos,
+  enviarASupervisores,
   revisarStockBajo,
   revisarEnSegundoPlano,
   iniciarRevisionPeriodica,
