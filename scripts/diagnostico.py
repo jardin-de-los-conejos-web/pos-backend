@@ -74,11 +74,13 @@ probar("2FA: estado", "/auth/2fa/status")
 
 print("\n── Revisión de datos ──")
 raros = 0
+# El cierre cuenta por el día del COBRO y el historial por el día en que se ABRIÓ la orden: cuando se
+# cobran cuentas de otros días (tickets de empleados) son distintos y está bien. Que los cobros cuadren
+# con el cierre lo revisa el servidor día por día ("Días donde los cobros no coinciden..."); aquí solo se avisa.
 s, h = st.get("summary", {}), hi.get("resumen", {})
-if s and h:
-    for k in ("total_revenue", "efectivo", "tarjeta", "transferencia"):
-        a = float(s.get(k, 0)); b = float(h.get({"total_revenue": "total"}.get(k, k), 0))
-        if abs(a - b) > 0.01: raros += 1; print(f"DIFERENCIA cierre vs historial en {k}: cierre {a:.2f} / historial {b:.2f}")
+if s and h and abs(float(s.get("total_revenue", 0)) - float(h.get("total", 0))) > 0.01:
+    print(f"INFO  cierre de hoy Q{float(s.get('total_revenue', 0)):.2f} · historial de órdenes abiertas hoy Q{float(h.get('total', 0)):.2f}"
+          " (la diferencia son cuentas de otros días cobradas hoy; ver 'Cobros de hoy en el cierre')")
 for o in hi.get("data", []):
     if o["status"] == "paid" and not o["order_number"].startswith("VTA") and abs(o["cobrado"] - o["total"]) > 0.01:
         raros += 1; print(f"Cobro distinto al total: {o['order_number']} {o['mesa']} total {o['total']} cobrado {o['cobrado']}")
