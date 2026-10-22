@@ -149,9 +149,42 @@ router.get('/:id/movements', async (req, res) => {
 })
 
 // ── GET /api/inventory/usage?from=YYYY-MM-DD&to=YYYY-MM-DD ─────────────
-// Cuánto se USÓ de cada producto del inventario en un rango de fechas (hora de Guatemala).
-// Solo lectura. Uso = salidas − lo que se devolvió por cancelar, eliminar o reconstruir órdenes.
+// Cuánto se USÓ de cada producto del inventario en un rango de fechas (hora de Guatemala),
+// y EN QUÉ productos se usó (licuado, crepa, gringa...). Solo lectura.
+// Uso = salidas − lo que se devolvió por cancelar, eliminar o reconstruir órdenes.
 // No cuenta compras (entradas), ajustes ni las correcciones manuales.
+
+const SIN_DETALLE = 'Pedido del POS (sin detalle)'
+
+/** Saca el nombre del producto vendido a partir del motivo del movimiento. */
+function productoDelMotivo(reason) {
+  const r = String(reason || '').trim()
+  let m
+  // "Venta: 2x Gringa", "Venta 2026-10-01: 2x Gringa", "Venta: 1x Crepa de Frutas (Banano 300 g)"
+  if ((m = r.match(/^Venta(?: \d{4}-\d{2}-\d{2})?: [\d.]+x (.+)$/))) return limpiar(m[1])
+  // "Venta: Licuado Grande · 8.0 oz x 2", "Venta: Café (2 vasos)", "Venta: Gringa x3"
+  if ((m = r.match(/^Venta: (.+?) · [\d.]+ oz x \d+/))) return limpiar(m[1])
+  if ((m = r.match(/^Venta: (.+?) \(\d+ vasos?\)/))) return limpiar(m[1])
+  if ((m = r.match(/^Venta: (.+?) x\d+$/))) return limpiar(m[1])
+  // Devoluciones: "Orden cancelada: 2x Gringa", "Orden eliminada: 1x X", "Cambio: regresa 1x X",
+  // "Reconstrucción 2026-10-01: quita 2x X"
+  if ((m = r.match(/^(?:Orden cancelada|Orden eliminada): [\d.]+x (.+)$/))) return limpiar(m[1])
+  if ((m = r.match(/^Cambio: regresa [\d.]+x (.+)$/))) return limpiar(m[1])
+  if ((m = r.match(/^Reconstrucci[oó]n [\d-]+: quita [\d.]+x (.+)$/))) return limpiar(m[1])
+  // Lo que la app descuenta por producto: "Usado en pedido del POS · Licuado Grande"
+  if ((m = r.match(/^Usado en pedido del POS · (.+)$/))) return limpiar(m[1])
+  if (/^Usado en pedido del POS/.test(r)) return SIN_DETALLE
+  if (/^Pedido para llevar/.test(r)) return 'Empaque para llevar'
+  return 'Otros movimientos'
+}
+
+/** Quita lo que va entre paréntesis (gramos, sabores) para juntar el mismo producto. */
+function limpiar(nombre) {
+  return String(nombre).replace(/\s*\(.*\)\s*$/, '').trim() || 'Otros movimientos'
+}
+
+const ES_DEVOLUCION = /^(Orden cancelada|Orden eliminada|Cambio: regresa|Reconstrucci|Se deshizo receta)/
+
 router.get('/usage', async (req, res) => {
   try {
     const re = /^\d{4}-\d{2}-\d{2}$/
@@ -162,36 +195,54 @@ router.get('/usage', async (req, res) => {
     // Guatemala es UTC-6: el día empieza a las 06:00 UTC
     const [rows] = await sequelize.query(
       `SELECT i.id, i.name, i.unit, i.category, i.quantity AS stock_actual,
-         COALESCE(SUM(CASE WHEN m.type = 'salida'
-                            AND COALESCE(m.reason,'') NOT LIKE 'Correcci%' THEN m.quantity ELSE 0 END), 0) AS usado,
-         COALESCE(SUM(CASE WHEN m.type = 'entrada' AND (
-                              COALESCE(m.reason,'') LIKE 'Orden cancelada%' OR COALESCE(m.reason,'') LIKE 'Orden eliminada%'
-                           OR COALESCE(m.reason,'') LIKE 'Cambio: regresa%' OR COALESCE(m.reason,'') LIKE 'Reconstrucci%'
-                           OR COALESCE(m.reason,'') LIKE 'Se deshizo receta%') THEN m.quantity ELSE 0 END), 0) AS devuelto,
-         COALESCE(SUM(CASE WHEN m.type = 'salida'
-                            AND COALESCE(m.reason,'') NOT LIKE 'Correcci%' THEN 1 ELSE 0 END), 0) AS movimientos
+              m.type, m.quantity, COALESCE(m.reason, '') AS reason
        FROM inventory_items i
        JOIN inventory_movements m ON m.item_id = i.id
        WHERE i.is_active = 1
+         AND m.type IN ('salida', 'entrada')
          AND m.created_at >= DATE_ADD(?, INTERVAL 6 HOUR)
-         AND m.created_at <  DATE_ADD(DATE_ADD(?, INTERVAL 1 DAY), INTERVAL 6 HOUR)
-       GROUP BY i.id, i.name, i.unit, i.category, i.quantity`,
+         AND m.created_at <  DATE_ADD(DATE_ADD(?, INTERVAL 1 DAY), INTERVAL 6 HOUR)`,
       { replacements: [from, to] }
     )
 
-    const data = rows
-      .map(r => {
-        const usado = Number(r.usado), devuelto = Number(r.devuelto)
-        return {
-          id: r.id, name: r.name, unit: r.unit, category: r.category,
-          stock_actual: Number(r.stock_actual),
-          usado: Math.round(usado * 100) / 100,
-          devuelto: Math.round(devuelto * 100) / 100,
-          neto: Math.round(Math.max(0, usado - devuelto) * 100) / 100,
-          movimientos: Number(r.movimientos),
-        }
-      })
-      .filter(r => r.neto > 0)
+    const r2 = v => Math.round(v * 100) / 100
+    const porItem = new Map()
+    for (const r of rows) {
+      const esSalida = r.type === 'salida' && !/^Correcci/.test(r.reason)
+      const esDevol = r.type === 'entrada' && ES_DEVOLUCION.test(r.reason)
+      if (!esSalida && !esDevol) continue
+
+      let it = porItem.get(r.id)
+      if (!it) {
+        it = { id: r.id, name: r.name, unit: r.unit, category: r.category,
+               stock_actual: Number(r.stock_actual), usado: 0, devuelto: 0, movimientos: 0, productos: new Map() }
+        porItem.set(r.id, it)
+      }
+      const q = Number(r.quantity)
+      const prod = productoDelMotivo(r.reason)
+      if (esSalida) {
+        it.usado += q; it.movimientos += 1
+        it.productos.set(prod, (it.productos.get(prod) || 0) + q)
+      } else {
+        it.devuelto += q
+        it.productos.set(prod, (it.productos.get(prod) || 0) - q)
+      }
+    }
+
+    const data = [...porItem.values()]
+      .map(it => ({
+        id: it.id, name: it.name, unit: it.unit, category: it.category,
+        stock_actual: it.stock_actual,
+        usado: r2(it.usado),
+        devuelto: r2(it.devuelto),
+        neto: r2(Math.max(0, it.usado - it.devuelto)),
+        movimientos: it.movimientos,
+        por_producto: [...it.productos.entries()]
+          .map(([producto, cantidad]) => ({ producto, cantidad: r2(cantidad) }))
+          .filter(p => p.cantidad > 0)
+          .sort((a, b) => b.cantidad - a.cantidad),
+      }))
+      .filter(it => it.neto > 0)
       .sort((a, b) => b.neto - a.neto)
 
     res.json({ success: true, from, to, data })
