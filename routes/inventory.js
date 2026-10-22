@@ -148,4 +148,56 @@ router.get('/:id/movements', async (req, res) => {
   }
 })
 
+// ── GET /api/inventory/usage?from=YYYY-MM-DD&to=YYYY-MM-DD ─────────────
+// Cuánto se USÓ de cada producto del inventario en un rango de fechas (hora de Guatemala).
+// Solo lectura. Uso = salidas − lo que se devolvió por cancelar, eliminar o reconstruir órdenes.
+// No cuenta compras (entradas), ajustes ni las correcciones manuales.
+router.get('/usage', async (req, res) => {
+  try {
+    const re = /^\d{4}-\d{2}-\d{2}$/
+    const from = re.test(req.query.from || '') ? req.query.from : null
+    const to = re.test(req.query.to || '') ? req.query.to : from
+    if (!from || !to) return res.status(400).json({ success: false, message: 'Falta from y to (YYYY-MM-DD)' })
+
+    // Guatemala es UTC-6: el día empieza a las 06:00 UTC
+    const [rows] = await sequelize.query(
+      `SELECT i.id, i.name, i.unit, i.category, i.quantity AS stock_actual,
+         COALESCE(SUM(CASE WHEN m.type = 'salida'
+                            AND COALESCE(m.reason,'') NOT LIKE 'Correcci%' THEN m.quantity ELSE 0 END), 0) AS usado,
+         COALESCE(SUM(CASE WHEN m.type = 'entrada' AND (
+                              COALESCE(m.reason,'') LIKE 'Orden cancelada%' OR COALESCE(m.reason,'') LIKE 'Orden eliminada%'
+                           OR COALESCE(m.reason,'') LIKE 'Cambio: regresa%' OR COALESCE(m.reason,'') LIKE 'Reconstrucci%'
+                           OR COALESCE(m.reason,'') LIKE 'Se deshizo receta%') THEN m.quantity ELSE 0 END), 0) AS devuelto,
+         COALESCE(SUM(CASE WHEN m.type = 'salida'
+                            AND COALESCE(m.reason,'') NOT LIKE 'Correcci%' THEN 1 ELSE 0 END), 0) AS movimientos
+       FROM inventory_items i
+       JOIN inventory_movements m ON m.item_id = i.id
+       WHERE i.is_active = 1
+         AND m.created_at >= DATE_ADD(?, INTERVAL 6 HOUR)
+         AND m.created_at <  DATE_ADD(DATE_ADD(?, INTERVAL 1 DAY), INTERVAL 6 HOUR)
+       GROUP BY i.id, i.name, i.unit, i.category, i.quantity`,
+      { replacements: [from, to] }
+    )
+
+    const data = rows
+      .map(r => {
+        const usado = Number(r.usado), devuelto = Number(r.devuelto)
+        return {
+          id: r.id, name: r.name, unit: r.unit, category: r.category,
+          stock_actual: Number(r.stock_actual),
+          usado: Math.round(usado * 100) / 100,
+          devuelto: Math.round(devuelto * 100) / 100,
+          neto: Math.round(Math.max(0, usado - devuelto) * 100) / 100,
+          movimientos: Number(r.movimientos),
+        }
+      })
+      .filter(r => r.neto > 0)
+      .sort((a, b) => b.neto - a.neto)
+
+    res.json({ success: true, from, to, data })
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message })
+  }
+})
+
 module.exports = router
