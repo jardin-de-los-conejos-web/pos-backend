@@ -77,7 +77,7 @@ async function pagosDe(orderId) {
 }
 
 // ── Cancelar orden (no cobrada) ──────────────────────────────────────────────
-router.post('/ordenes/:id/cancelar', protect, async (req, res) => {
+router.post('/ordenes/:id/cancelar', protect, requireSupervisor, async (req, res) => {
   try {
     const orderId = Number(req.params.id)
     const userName = req.body?.user_name || 'App iOS'
