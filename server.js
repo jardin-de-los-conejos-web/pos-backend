@@ -29,6 +29,7 @@ const { puertaGeneral } = require('./middleware/auth');
 const actividad = require('./services/actividad'); // ← quién hizo cada orden, cobro y gasto
 const actividadRoutes = require('./routes/actividad');
 const reconstruirRoutes = require('./routes/reconstruir'); // ← rehacer un día desde recibos
+const eventosRoutes = require('./routes/eventos'); // ← eventos: ventas aparte del restaurante
 const recetasAlEnviar = require('./services/recetasAlEnviar'); // ← recetas al enviar la orden
 const push = require('./services/push');
 const smoothie = require('./services/smoothie'); // ← Smoothie en Bebidas
@@ -98,6 +99,7 @@ app.use('/api/devices', deviceRoutes); // ← push de stock bajo
 app.use('/api/historial', historialRoutes); // ← historial de transacciones
 app.use('/api/ajustes', ajustesRoutes); // ← cancelar orden / cambiar producto
 app.use('/api/actividad', actividadRoutes); // ← resumen por usuario
+app.use('/api/eventos', eventosRoutes); // ← eventos (precios propios, inventario aparte)
 app.use('/api/diagnostico', diagnosticoRoutes);
 app.use('/api/reconstruir-dia', reconstruirRoutes); // ← rehacer un día desde recibos
 

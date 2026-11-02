@@ -173,6 +173,7 @@ function productoDelMotivo(reason) {
   if ((m = r.match(/^Reconstrucci[oó]n [\d-]+: quita [\d.]+x (.+)$/))) return limpiar(m[1])
   // Lo que la app descuenta por producto: "Usado en pedido del POS · Licuado Grande"
   if ((m = r.match(/^Usado en pedido del POS · (.+)$/))) return limpiar(m[1])
+  if ((m = r.match(/^Evento: (.+)$/))) return `Evento: ${limpiar(m[1])}`
   if (/^Usado en pedido del POS/.test(r)) return SIN_DETALLE
   if (/^Pedido para llevar/.test(r)) return 'Empaque para llevar'
   return 'Otros movimientos'
