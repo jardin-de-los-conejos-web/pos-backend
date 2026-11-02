@@ -2,7 +2,10 @@
 //  Historial de transacciones (app iOS → Estadísticas → Historial)
 //
 //  GET /api/historial?date=YYYY-MM-DD
-//  Devuelve todas las órdenes de ese día (hora de Guatemala) con:
+//  Devuelve las órdenes de ese día (hora de Guatemala): las que se ABRIERON ese día y las que
+//  se COBRARON ese día. El dinero (cobrado, efectivo, tarjeta, transferencia) cuenta en el día
+//  en que se PAGÓ: un ticket abierto el 2 y cobrado el 15 suma el dinero el 15, no el 2.
+//  Cada orden trae:
 //    número de orden, número de cocina, mesa/ticket, hora, estado, total,
 //    forma de pago y lo que se pidió (producto, cantidad, precio, notas).
 //  Más un resumen del día (órdenes, cobrado, efectivo, tarjeta, transferencia).
@@ -39,10 +42,15 @@ router.get('/', protect, async (req, res) => {
        FROM orders o
        LEFT JOIN tables t ON t.id = o.table_id
        LEFT JOIN cocina_order_numbers cn ON cn.order_id = o.id
-       WHERE o.created_at >= ? AND o.created_at < ?
+       WHERE (
+               (o.created_at >= ? AND o.created_at < ?)
+            OR o.id IN (SELECT order_id FROM payments
+                        WHERE COALESCE(paid_at, created_at) >= ? AND COALESCE(paid_at, created_at) < ?
+                          AND (status IS NULL OR status <> 'refunded'))
+             )
          AND o.status <> 'cancelled'
        ORDER BY o.created_at DESC`,
-      { replacements: [desde, hasta] }
+      { replacements: [desde, hasta, desde, hasta] }
     )
 
     const ids = ordenes.map(o => o.id)
@@ -69,10 +77,18 @@ router.get('/', protect, async (req, res) => {
 
     const resumen = { ordenes: ordenes.length, cobradas: 0, abiertas: 0, total: 0, efectivo: 0, tarjeta: 0, transferencia: 0 }
 
+    const enElDia = p => {
+      const t = new Date(p.paid_at).getTime()
+      return t >= desde.getTime() && t < hasta.getTime()
+    }
+
     const data = ordenes.map(o => {
       const pagosOrden = pagos.filter(p => p.order_id === o.id)
+      // Solo el dinero que se cobró ESTE día cuenta en este día
+      const pagosDelDia = pagosOrden.filter(enElDia)
+      const cobradaOtroDia = pagosOrden.length > 0 && pagosDelDia.length === 0
       let efectivo = 0, tarjeta = 0, transferencia = 0
-      for (const p of pagosOrden) {
+      for (const p of pagosDelDia) {
         const monto = num(p.amount_paid)
         // monto negativo = devolución por un cambio de producto
         if (p.method === 'cash') efectivo += monto < 0 ? monto : Math.max(0, monto - num(p.change_given))
@@ -87,13 +103,13 @@ router.get('/', protect, async (req, res) => {
       const exceso = efectivo + tarjeta + transferencia - num(o.total)
       if (exceso > 0 && num(o.total) > 0) efectivo = Math.max(0, efectivo - exceso)
       const cobrado = efectivo + tarjeta + transferencia
-      if (o.status === 'paid' || pagosOrden.length) {
+      if (pagosDelDia.length) {
         resumen.cobradas += 1
         resumen.total += cobrado
         resumen.efectivo += efectivo
         resumen.tarjeta += tarjeta
         resumen.transferencia += transferencia
-      } else if (o.status !== 'cancelled') {
+      } else if (!cobradaOtroDia && o.status !== 'cancelled' && o.status !== 'paid') {
         resumen.abiertas += 1
       }
 
@@ -114,6 +130,12 @@ router.get('/', protect, async (req, res) => {
         efectivo, tarjeta, transferencia,
         created_at: o.created_at,
         paid_at: pagosOrden.length ? pagosOrden[pagosOrden.length - 1].paid_at : null,
+        // true = la orden se abrió ESTE día pero se cobró otro día (el dinero cuenta ese otro día)
+        cobrada_otro_dia: cobradaOtroDia,
+        // día (hora de Guatemala) en que se cobró, para mostrarlo en la lista
+        cobrada_el: pagosOrden.length
+          ? new Date(new Date(pagosOrden[pagosOrden.length - 1].paid_at).getTime() - 6 * 60 * 60 * 1000).toISOString().slice(0, 10)
+          : null,
         items: items.filter(i => i.order_id === o.id).map(i => ({
           id: i.item_id,
           name: i.name,
