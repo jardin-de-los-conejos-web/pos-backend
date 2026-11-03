@@ -127,6 +127,7 @@ const start = async () => {
 
   // Avisos push de stock bajo: revisa cada 5 minutos
   push.iniciarRevisionPeriodica();
+  eventosRoutes.iniciarRecordatorios(); // ← avisa por la mañana de los eventos de hoy
 
   // Producto Smoothie (con foto) en Bebidas
   await smoothie.asegurarProducto();

@@ -13,6 +13,9 @@
 //    DELETE /api/eventos/:id/ventas/:ventaId   Quita una venta equivocada (supervisor)
 //    POST   /api/eventos/:id/cerrar            Termina el evento (supervisor)
 //
+//    POST   /api/eventos/web                   La PÁGINA WEB agenda un evento (pública, exige la llave
+//                                              EVENTOS_WEB_KEY en el encabezado x-api-key). Avisa por
+//                                              push a los supervisores.
 //    GET    /api/eventos/programados/lista     Eventos agendados (calendario)
 //    POST   /api/eventos/programados           Agenda un evento (supervisor)
 //    PATCH  /api/eventos/programados/:id       Edita / cambia estado
@@ -109,11 +112,111 @@ async function asegurarTablas() {
        INDEX idx_fecha (fecha)
      )`
   )
+  // Para avisar una sola vez por día de los eventos de hoy (tablas viejas no la tienen)
+  try { await sequelize.query(`ALTER TABLE eventos_programados ADD COLUMN recordatorio_enviado DATE NULL`) }
+  catch (_) { /* ya existe */ }
   tablasListas = true
 }
 
 const usuario = req => (req.user && (req.user.name || req.user.username)) || 'App iOS'
 const fechaValida = f => /^\d{4}-\d{2}-\d{2}$/.test(f || '')
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Evento agendado desde la PÁGINA WEB (no hay sesión: se protege con una llave)
+//
+//  La web debe llamarlo desde SU servidor (no desde el navegador) para que la llave no se vea.
+//  Cuerpo: { nombre, fecha: 'YYYY-MM-DD', hora: 'HH:MM', cliente, telefono, correo, personas, notas }
+// ═══════════════════════════════════════════════════════════════════════════
+function hoyGT() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Guatemala', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date())
+}
+
+const intentosWeb = new Map()   // ip → { cuenta, desde }
+function demasiadosIntentos(ip) {
+  const ahora = Date.now()
+  const reg = intentosWeb.get(ip)
+  if (!reg || ahora - reg.desde > 60 * 60 * 1000) { intentosWeb.set(ip, { cuenta: 1, desde: ahora }); return false }
+  reg.cuenta += 1
+  return reg.cuenta > 8   // máximo 8 solicitudes por hora por dirección
+}
+
+const limpio = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max)
+
+router.post('/web', async (req, res) => {
+  try {
+    const llave = process.env.EVENTOS_WEB_KEY
+    if (!llave) return res.status(503).json({ success: false, message: 'Las solicitudes desde la web no están configuradas.' })
+    if (req.get('x-api-key') !== llave) return res.status(401).json({ success: false, message: 'No autorizado.' })
+    if (demasiadosIntentos(req.ip)) return res.status(429).json({ success: false, message: 'Demasiadas solicitudes. Intenta más tarde.' })
+
+    const b = req.body || {}
+    // Campo trampa: los bots lo llenan, las personas no lo ven
+    if (limpio(b.sitio_web, 50)) return res.json({ success: true })
+
+    await asegurarTablas()
+    const titulo = limpio(b.nombre || b.titulo, 200)
+    const fecha = limpio(b.fecha, 10)
+    const hora = /^\d{2}:\d{2}$/.test(limpio(b.hora, 5)) ? limpio(b.hora, 5) : null
+    if (!titulo || !fechaValida(fecha)) {
+      return res.status(400).json({ success: false, message: 'Falta el nombre del evento o la fecha (YYYY-MM-DD).' })
+    }
+    if (fecha < hoyGT()) return res.status(400).json({ success: false, message: 'La fecha ya pasó.' })
+
+    const cliente = limpio(b.cliente, 200) || null
+    const telefono = limpio(b.telefono, 40) || null
+    const correo = limpio(b.correo, 120)
+    const personas = Math.round(num(b.personas))
+    const notas = [limpio(b.notas, 500), correo ? `Correo: ${correo}` : ''].filter(Boolean).join(' · ') || null
+
+    const [id] = await sequelize.query(
+      `INSERT INTO eventos_programados (titulo, fecha, hora, cliente, telefono, personas, notas, origen, user_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'web', 'Página web')`,
+      { replacements: [titulo, fecha, hora, cliente, telefono, personas > 0 && personas < 100000 ? personas : null, notas] }
+    )
+
+    // Aviso a los supervisores (si el push falla, el evento ya quedó guardado)
+    try {
+      const cuando = `${fecha}${hora ? ' ' + hora : ''}`
+      await require('../services/push').enviarASupervisores(
+        '🎉 Nuevo evento desde la web',
+        `${titulo} · ${cuando}${cliente ? ' · ' + cliente : ''}`)
+    } catch (e) { console.error('eventos web: push falló:', e.message) }
+
+    res.json({ success: true, data: { id } })
+  } catch (e) {
+    console.error('eventos web error:', e)
+    res.status(500).json({ success: false, message: 'No se pudo guardar el evento.' })
+  }
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Recordatorio del día: una vez por la mañana avisa a los supervisores de los eventos de HOY
+// ═══════════════════════════════════════════════════════════════════════════
+async function enviarRecordatorios() {
+  try {
+    const horaGT = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Guatemala', hour: '2-digit', hour12: false }).format(new Date()))
+    if (horaGT < 8 || horaGT >= 21) return
+    await asegurarTablas()
+    const hoy = hoyGT()
+    const [rows] = await sequelize.query(
+      `SELECT id, titulo, hora, cliente FROM eventos_programados
+       WHERE fecha = ? AND estado = 'programado' AND (recordatorio_enviado IS NULL OR recordatorio_enviado <> ?)
+       ORDER BY hora`, { replacements: [hoy, hoy] })
+    for (const e of rows) {
+      await require('../services/push').enviarASupervisores(
+        '🎉 Evento hoy', `${e.titulo}${e.hora ? ' · ' + e.hora : ''}${e.cliente ? ' · ' + e.cliente : ''}`)
+      await sequelize.query(`UPDATE eventos_programados SET recordatorio_enviado = ? WHERE id = ?`, { replacements: [hoy, e.id] })
+    }
+  } catch (e) {
+    console.error('eventos recordatorio error:', e.message)
+  }
+}
+router.iniciarRecordatorios = function () {
+  setInterval(enviarRecordatorios, 15 * 60 * 1000)
+  setTimeout(enviarRecordatorios, 60 * 1000)
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Eventos programados (van ANTES de /:id para que "programados" no se tome como un id)

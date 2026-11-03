@@ -95,6 +95,7 @@ const PUBLICAS = new Set([
   'GET /users',                // idem (la app vieja la pide aquí)
   'POST /devices/register',    // el iPad registra su token de avisos al abrir la app
   'POST /auth/2fa/verify-login', // la ruta misma exige el token (aunque esté pendiente de 2FA)
+  'POST /eventos/web',         // la página web agenda un evento (la ruta exige la llave EVENTOS_WEB_KEY)
 ]);
 
 const puertaGeneral = (req, res, next) => {
