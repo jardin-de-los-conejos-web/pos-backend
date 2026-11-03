@@ -149,7 +149,8 @@ router.post('/web', async (req, res) => {
     const llave = process.env.EVENTOS_WEB_KEY
     if (!llave) return res.status(503).json({ success: false, message: 'Las solicitudes desde la web no están configuradas.' })
     if (req.get('x-api-key') !== llave) return res.status(401).json({ success: false, message: 'No autorizado.' })
-    if (demasiadosIntentos(req.ip)) return res.status(429).json({ success: false, message: 'Demasiadas solicitudes. Intenta más tarde.' })
+    // La web llama desde su servidor: manda la IP de la persona (solo se confía porque ya traía la llave)
+    if (demasiadosIntentos(req.get('x-cliente-ip') || req.ip)) return res.status(429).json({ success: false, message: 'Demasiadas solicitudes. Intenta más tarde.' })
 
     const b = req.body || {}
     // Campo trampa: los bots lo llenan, las personas no lo ven
