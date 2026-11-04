@@ -112,6 +112,17 @@ async function asegurarTablas() {
        INDEX idx_fecha (fecha)
      )`
   )
+  // Productos que se llevan al evento (solo esos salen en el menú del evento)
+  await sequelize.query(
+    `CREATE TABLE IF NOT EXISTS evento_productos (
+       id INT AUTO_INCREMENT PRIMARY KEY,
+       evento_id INT NOT NULL,
+       producto VARCHAR(200) NOT NULL,
+       precio DECIMAL(10,2) NOT NULL DEFAULT 0,
+       cantidad DECIMAL(10,2) NULL,
+       INDEX idx_evento (evento_id)
+     )`
+  )
   // Para avisar una sola vez por día de los eventos de hoy (tablas viejas no la tienen)
   try { await sequelize.query(`ALTER TABLE eventos_programados ADD COLUMN recordatorio_enviado DATE NULL`) }
   catch (_) { /* ya existe */ }
@@ -323,6 +334,17 @@ router.post('/', requireSupervisor, async (req, res) => {
       }
     }
 
+    // Productos que se llevan al evento, con el precio que se cobra y (opcional) cuántos se llevan
+    for (const p of Array.isArray(b.productos) ? b.productos : []) {
+      if (!String(p.producto || '').trim()) continue
+      const cant = num(p.cantidad)
+      await sequelize.query(
+        `INSERT INTO evento_productos (evento_id, producto, precio, cantidad) VALUES (?, ?, ?, ?)`,
+        { replacements: [eventoId, String(p.producto).slice(0, 200), r2(num(p.precio)), cant > 0 ? cant : null],
+          transaction: t }
+      )
+    }
+
     // Inventario: del restaurante (se resta) o aparte (solo se anota)
     for (const it of Array.isArray(b.inventario) ? b.inventario : []) {
       const cantidad = num(it.cantidad)
@@ -464,6 +486,9 @@ router.get('/:id', requireSupervisor, async (req, res) => {
     const [inventario] = await sequelize.query(
       `SELECT tipo, nombre, cantidad, unidad FROM evento_inventario WHERE evento_id = ? ORDER BY id`,
       { replacements: [evento.id] })
+    const [llevadosRows] = await sequelize.query(
+      `SELECT producto, precio, cantidad FROM evento_productos WHERE evento_id = ? ORDER BY producto`,
+      { replacements: [evento.id] })
 
     const resumen = { ventas: ventas.length, total: 0, efectivo: 0, tarjeta: 0, transferencia: 0 }
     const productos = new Map()
@@ -490,6 +515,16 @@ router.get('/:id', requireSupervisor, async (req, res) => {
       ventas: listaVentas,
       precios: precios.map(p => ({ producto: p.producto, precio: num(p.precio), precio_restaurante: num(p.precio_restaurante) })),
       inventario: inventario.map(i => ({ tipo: i.tipo, nombre: i.nombre, cantidad: num(i.cantidad), unidad: i.unidad })),
+      // Lo que se llevó al evento y cuánto se vendió de cada uno
+      llevados: llevadosRows.map(l => {
+        const vendido = productos.get(l.producto) || { cantidad: 0, total: 0 }
+        const llevados = l.cantidad === null ? null : num(l.cantidad)
+        return {
+          producto: l.producto, precio: num(l.precio), llevados,
+          vendidos: num(vendido.cantidad), total: r2(vendido.total),
+          sobrantes: llevados === null ? null : r2(llevados - num(vendido.cantidad)),
+        }
+      }).sort((a, b) => b.vendidos - a.vendidos || a.producto.localeCompare(b.producto)),
     })
   } catch (e) {
     res.status(500).json({ success: false, message: e.message })
