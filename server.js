@@ -52,6 +52,8 @@ app.use(cors({
     'http://localhost:4000',
     'http://localhost:5173',
     'https://jardindelosconejos.vercel.app',
+    'https://jardindelosconejos.site',
+    'https://www.jardindelosconejos.site',
     process.env.FRONTEND_URL,
   ].filter(Boolean),
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
